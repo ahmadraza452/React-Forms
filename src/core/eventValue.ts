@@ -16,13 +16,22 @@ export function isEventLike(value: unknown): boolean {
  * Number inputs are stored as numbers via `valueAsNumber` (a cleared number
  * input stores `NaN`, matching the `register()` behavior). Returns `undefined`
  * when the target is not recognized.
+ *
+ * DOM constructor checks are guarded so the module is safe in non-DOM
+ * environments (e.g. SSR/Node), where the function gracefully falls back to
+ * reading a plain `value` property instead of throwing.
  */
 export function getEventValue(event: unknown): unknown {
   const target = (event as { target?: EventTarget | null } | undefined)?.target;
-  if (target instanceof HTMLInputElement) {
+  if (target === null || target === undefined) return undefined;
+
+  if (typeof HTMLInputElement !== "undefined" && target instanceof HTMLInputElement) {
     return target.type === "number" ? target.valueAsNumber : target.value;
   }
-  if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
+  if (typeof HTMLTextAreaElement !== "undefined" && target instanceof HTMLTextAreaElement) {
+    return target.value;
+  }
+  if (typeof HTMLSelectElement !== "undefined" && target instanceof HTMLSelectElement) {
     return target.value;
   }
   return (target as { value?: unknown } | undefined)?.value;

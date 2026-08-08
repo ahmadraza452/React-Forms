@@ -9,6 +9,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Server/API error handling via `setError(name, error)`, `setErrors(errors)`
+  and the reserved `"root"` key for form-level (server) errors. Errors accept
+  a full `FieldError` (`{ message, meta? }`) or a plain string message.
+  `setErrors` merges into the current errors without wiping existing ones.
+- Server errors behave like validation errors: they surface in `errors` and
+  `getFieldState()`, make `isValid` `false`, are passed to `handleSubmit`'s
+  `onError`, and are cleared by `clearErrors(name)` / `clearErrors()` /
+  `reset()`. Client re-validation replaces them.
+- `FieldErrors` now includes the `"root"` key; new `ErrorName` type.
+- Validation race-condition protection: every validation run (and
+  `reset()`/`resetField()`) bumps an internal sequence number, and a result
+  that resolves after a newer run started is discarded instead of
+  overwriting newer state. This covers async resolvers, `trigger()`,
+  `handleSubmit` and validation during rapid changes.
+- Consistent error handling for throwing validators: a validator that throws
+  now counts as a validation failure (a `"Validation failed"` error on the
+  field, or a `"root"` error for whole-form validation) instead of silently
+  passing.
+- SSR safety: `getEventValue` no longer references DOM constructors directly,
+  so the module can be imported in non-DOM environments.
+- Subscription-store cleanup: unsubscribing the last listener of a field
+  removes the field's listener map (no leaked empty entries).
+- Validation types consolidated: `src/validation/types.ts` now re-exports the
+  core type definitions instead of duplicating them.
+- Tests: server errors (`setError`/`setErrors`/root/clear/Controller/
+  register/submission interplay), async validation race conditions (stale
+  results, reset/resetField/submit invalidation), subscription cleanup
+  (store + component unmounts, duplicate subscriptions), edge cases (empty
+  form, 50-field form, null/undefined values, repeated values, reset during
+  submission, rapid submissions, unmounted fields) and performance smoke
+  benchmarks (100-field forms, isolated watchers, validation overhead).
+- CI workflow (`.github/workflows/ci.yml`): install, typecheck, lint, format
+  check, test and build on push and pull requests (Node 22).
+
+### Changed
+
+- Package version bumped to `0.7.0`.
+
+### Fixed
+
+- A stale async validation result could overwrite a newer one, or re-populate
+  errors after `reset()` / `resetField()`.
+- A throwing validator silently passed whole-form validation while failing
+  field-level validation (inconsistent error handling).
+- `getEventValue` crashed in non-DOM environments when an event-like object
+  was passed.
+- Empty field-subscription maps stayed in the store after unsubscribing.
+
+## Previous development work (not yet published)
+
+### Added
+
 - Advanced field API:
   - `watch()` — watch the whole form, a single field or multiple fields, with
     correctly typed returns. Reactive during render (the component re-renders
@@ -43,6 +95,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Package version bumped to `0.6.0`.
+
+### Added
 
 - Project scaffolding: TypeScript, Vite library mode, Vitest, ESLint, Prettier.
 - Core form engine: `useSmartForm` hook with `defaultValues`, `getValues`,

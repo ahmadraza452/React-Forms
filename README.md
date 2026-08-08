@@ -6,10 +6,11 @@ A lightweight, type-safe form state and validation library for React.
 >
 > The **core form engine** (`useSmartForm`), **field registration**
 > (`register()`), the **generic validation/resolver system**, the **Zod
-> resolver** (`zodResolver()`), **form submission** (`handleSubmit`) and the
-> **advanced field API** (`watch()`, `useWatch`, `Controller`) are implemented.
-> Nested field-path support and related features are planned and have **not**
-> been implemented yet. Do not use this package in production.
+> resolver** (`zodResolver()`), **form submission** (`handleSubmit`), the
+> **advanced field API** (`watch()`, `useWatch`, `Controller`) and **server
+> error handling** (`setError()` / `setErrors()`) are implemented. Nested
+> field-path support and related features are planned and have **not** been
+> implemented yet. Do not use this package in production.
 
 ## Features
 
@@ -32,6 +33,8 @@ A lightweight, type-safe form state and validation library for React.
 - Controlled components via `Controller` (reuses the validation engine).
 - Advanced field API: `resetField(name)`, `setValue` options
   (`shouldValidate`, `shouldTouch`, `shouldDirty`), `form.control`.
+- Server/API error handling: `setError()`, `setErrors()` and root-level
+  errors, surfaced through `errors`, `isValid` and `handleSubmit`'s `onError`.
 - No mutation of the `defaultValues` object you pass in.
 - No UI components required — bring your own.
 
@@ -39,7 +42,6 @@ A lightweight, type-safe form state and validation library for React.
 
 - Yup and Valibot resolvers.
 - Nested field-path support (`"user.name"`, arrays).
-- Error handling for async submissions.
 
 ## Installation
 
@@ -277,6 +279,66 @@ After a successful submission the form is **not** reset automatically. Call
 resets `isSubmitting`, `isSubmitted`, `submitCount`, errors, dirty and touched
 state.
 
+### Server errors (`setError()` / `setErrors()`)
+
+Client validation cannot know about server-side failures (e.g. an email that
+is already taken). Set those errors programmatically after the API responds —
+they behave exactly like validation errors: they appear in `form.errors`,
+make `isValid` `false`, are passed to `handleSubmit`'s `onError` and can be
+cleared with `clearErrors()`:
+
+```tsx
+const form = useSmartForm({
+  defaultValues: { email: "", password: "" },
+
+  onSubmit: async (values) => {
+    const response = await signup(values);
+    if (!response.ok) {
+      // Field-level server error:
+      form.setError("email", { message: response.message });
+      // Or a form-level (root) error that belongs to no field:
+      form.setError("root", "Unable to reach the server");
+      // Or several at once:
+      form.setErrors({
+        email: { message: "Email is already taken" },
+        password: { message: "Password is too weak" },
+      });
+    }
+  },
+});
+```
+
+`setError(name, error)` accepts either a full error object (`{ message,
+meta? }`) or a plain string. `setErrors(errors)` merges into the current
+errors without wiping existing ones.
+
+Errors set by the server are replaced by client validation results: re-
+validating a field (e.g. `mode: "onChange"` revalidation) overwrites its
+server error, and a passing whole-form validation run clears all errors.
+`clearErrors("root")` clears only the form-level error; `clearErrors()` and
+`reset()` clear everything.
+
+### API overview
+
+The object returned by `useSmartForm()`:
+
+| Member                                                               | Description                                                                    |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `getValues()` / `getValue(name)`                                     | Current values / a single field value (deep copies).                           |
+| `setValue(name, value, options?)`                                    | Programmatic update (optional `shouldValidate`, `shouldTouch`, `shouldDirty`). |
+| `register(name)`                                                     | Props to spread onto an input (`name`, `value`, `onChange`, `onBlur`, `ref`).  |
+| `watch(...)`                                                         | Reactive value watching (whole form, single field or multiple fields).         |
+| `reset(values?)`                                                     | Reset to defaults (or the provided values).                                    |
+| `resetField(name)`                                                   | Reset one field (value, error, touched, dirty).                                |
+| `getFieldState(name)`                                                | `{ value, error, invalid, touched, dirty }`.                                   |
+| `dirtyFields` / `touchedFields` / `isDirty`                          | Dirty/touched state.                                                           |
+| `errors` / `isValid`                                                 | Validation + server errors, and whether any exist.                             |
+| `trigger(name?)`                                                     | Validate the whole form or one field (returns a promise).                      |
+| `clearErrors(name?)` / `setError(name, error)` / `setErrors(errors)` | Manage errors, including `"root"`.                                             |
+| `handleSubmit`                                                       | Form `onSubmit` handler (validates, then calls `onSubmit`/`onError`).          |
+| `isSubmitting` / `isSubmitted` / `submitCount`                       | Submission state.                                                              |
+| `control`                                                            | Stable control object for `useWatch` / `Controller`.                           |
+
 ### Watching values
 
 `watch()` returns the current values and is reactive during render — the
@@ -375,10 +437,11 @@ npm run build        # build the distributable package into dist/
 - [x] `Controller` component for controlled fields.
 - [x] `useWatch()` hook with field-level subscriptions.
 - [x] `resetField()`, advanced `setValue()` options, stable `control`.
+- [x] Server error handling: `setError()`, `setErrors()`, root errors.
+- [x] Error handling and ergonomics for async submissions.
 - [ ] Nested field-path support (`"user.name"`, arrays).
 - [ ] Yup resolver.
 - [ ] Valibot resolver.
-- [ ] Error handling and ergonomics for async submissions.
 - [ ] Publish to npm.
 
 ## License

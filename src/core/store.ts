@@ -45,6 +45,11 @@ export function createFieldSubscriptionStore(): FieldSubscriptionStore {
       listeners.add(listener);
       return () => {
         listeners!.delete(listener);
+        // Drop the field entry entirely once it has no subscribers so the
+        // store does not keep empty maps (and the fields) alive forever.
+        if (listeners!.size === 0) {
+          fieldListeners.delete(name);
+        }
       };
     },
     getVersion() {

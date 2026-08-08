@@ -19,6 +19,7 @@ export type {
   ControllerFieldState,
   ControllerProps,
   ControllerRenderProps,
+  ErrorName,
   FieldError,
   FieldErrors,
   FieldState,
