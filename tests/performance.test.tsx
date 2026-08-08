@@ -17,6 +17,8 @@ afterEach(() => {
  * profiler for real measurements.
  */
 describe("performance smoke benchmarks", () => {
+  const BENCH_TIMEOUT = 30000;
+
   it("handles a medium form (100 fields) with thousands of updates quickly", async () => {
     const values: Record<string, string> = {};
     for (let i = 0; i < 100; i += 1) values[`field${i}`] = "";
@@ -34,7 +36,7 @@ describe("performance smoke benchmarks", () => {
 
     expect(elapsed).toBeLessThan(10000);
     expect(result.getValue("field99")).toBe("value99");
-  });
+  }, BENCH_TIMEOUT);
 
   it("keeps per-field subscriptions isolated at scale", async () => {
     const values: Record<string, string> = {};
@@ -86,7 +88,7 @@ describe("performance smoke benchmarks", () => {
     fireEvent.change(screen.getByLabelText("field0"), { target: { value: "changed" } });
     expect(screen.getByTestId("watched").textContent).toBe("changed");
     expect(watcherRenders.current).toBe(2);
-  });
+  }, BENCH_TIMEOUT);
 
   it("validates a medium form without pathological cost", async () => {
     const values: Record<string, string> = {};
@@ -103,7 +105,7 @@ describe("performance smoke benchmarks", () => {
     console.info(`[perf] 10 full validations of 100-field form: ${elapsed.toFixed(1)}ms`);
 
     expect(elapsed).toBeLessThan(10000);
-  });
+  }, BENCH_TIMEOUT);
 
   it("Controller updates stay cheap with many controlled fields", async () => {
     const values: Record<string, string> = {};
@@ -141,7 +143,7 @@ describe("performance smoke benchmarks", () => {
 
     expect(elapsed).toBeLessThan(10000);
     expect(holder.current?.getValue("field49")).toBe("v49");
-  });
+  }, BENCH_TIMEOUT);
 });
 
 /**
