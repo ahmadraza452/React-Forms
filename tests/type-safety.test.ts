@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
-import { useSmartForm } from "../src/index";
+import { useSmartForm, type UseSmartFormRegisterReturn } from "../src/index";
 
 interface LoginForm {
   email: string;
@@ -81,6 +81,40 @@ describe("useSmartForm type safety", () => {
     function typeChecks() {
       // @ts-expect-error missing the password field
       useSmartForm<LoginForm>({ defaultValues: { email: "" } });
+    }
+
+    expect(typeChecks).toBeTypeOf("function");
+  });
+
+  it("types register props", () => {
+    function typeChecks() {
+      const form = useSmartForm<LoginForm>({
+        defaultValues: { email: "", password: "" },
+      });
+
+      expectTypeOf(form.register("email")).toEqualTypeOf<
+        UseSmartFormRegisterReturn<LoginForm, "email">
+      >();
+      expectTypeOf(form.register("email").name).toEqualTypeOf<"email">();
+      expectTypeOf(form.register("email").value).toEqualTypeOf<string>();
+      expectTypeOf(form.register("password").value).toEqualTypeOf<string>();
+    }
+
+    expect(typeChecks).toBeTypeOf("function");
+  });
+
+  it("rejects invalid register and getFieldState field names", () => {
+    function typeChecks() {
+      const form = useSmartForm<LoginForm>({
+        defaultValues: { email: "", password: "" },
+      });
+
+      // @ts-expect-error unknown field
+      form.register("doesNotExist");
+      // @ts-expect-error empty string is not a field name
+      form.register("");
+      // @ts-expect-error unknown field
+      form.getFieldState("doesNotExist");
     }
 
     expect(typeChecks).toBeTypeOf("function");

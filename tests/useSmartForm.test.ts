@@ -19,7 +19,7 @@ describe("useSmartForm", () => {
   });
 
   it("does not mutate the original defaultValues object", () => {
-    const frozen = Object.freeze({ name: "", email: "" });
+    const frozen: { name: string; email: string } = Object.freeze({ name: "", email: "" });
     const { result } = renderHook(() => useSmartForm({ defaultValues: frozen }));
 
     act(() => {
