@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { useSmartForm, zodResolver } from "../src/index";
+import { Controller, useSmartForm, useWatch, zodResolver } from "../src/index";
 
 describe("react-smart-form public API", () => {
   it("exports the useSmartForm hook", () => {
@@ -9,6 +9,11 @@ describe("react-smart-form public API", () => {
 
   it("exports the zodResolver", () => {
     expect(typeof zodResolver).toBe("function");
+  });
+
+  it("exports the Controller component and useWatch hook", () => {
+    expect(typeof Controller).toBe("function");
+    expect(typeof useWatch).toBe("function");
   });
 
   it("has a working test environment", () => {

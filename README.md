@@ -6,8 +6,9 @@ A lightweight, type-safe form state and validation library for React.
 >
 > The **core form engine** (`useSmartForm`), **field registration**
 > (`register()`), the **generic validation/resolver system**, the **Zod
-> resolver** (`zodResolver()`) and **form submission** (`handleSubmit`) are
-> implemented. `Controller` and related features are planned and have **not**
+> resolver** (`zodResolver()`), **form submission** (`handleSubmit`) and the
+> **advanced field API** (`watch()`, `useWatch`, `Controller`) are implemented.
+> Nested field-path support and related features are planned and have **not**
 > been implemented yet. Do not use this package in production.
 
 ## Features
@@ -26,16 +27,19 @@ A lightweight, type-safe form state and validation library for React.
 - Optional Zod integration via `zodResolver(schema)`.
 - Form submission: `handleSubmit()`, `onSubmit`, `onError`, `isSubmitting`,
   `isSubmitted` and `submitCount`.
+- Watching values: `watch()`, `watch(name)`, `watch([names])` and the
+  `useWatch()` hook with field-level subscriptions.
+- Controlled components via `Controller` (reuses the validation engine).
+- Advanced field API: `resetField(name)`, `setValue` options
+  (`shouldValidate`, `shouldTouch`, `shouldDirty`), `form.control`.
 - No mutation of the `defaultValues` object you pass in.
 - No UI components required — bring your own.
 
 ### Planned
 
 - Yup and Valibot resolvers.
-- `Controller` for controlled fields.
 - Nested field-path support (`"user.name"`, arrays).
 - Error handling for async submissions.
-- `watch()`.
 
 ## Installation
 
@@ -273,6 +277,77 @@ After a successful submission the form is **not** reset automatically. Call
 resets `isSubmitting`, `isSubmitted`, `submitCount`, errors, dirty and touched
 state.
 
+### Watching values
+
+`watch()` returns the current values and is reactive during render — the
+component re-renders when the watched values change:
+
+```tsx
+const email = form.watch("email");
+const [email, password] = form.watch(["email", "password"]);
+const allValues = form.watch();
+```
+
+Watched values are deep copies; mutating them never touches the form state.
+
+To watch a field from a _different_ component, pass `form.control` to the
+`useWatch` hook. It re-renders only when the watched field changes:
+
+```tsx
+import { useWatch } from "react-smart-form";
+
+function EmailPreview({ control }: { control: Control<LoginForm> }) {
+  const email = useWatch({ control, name: "email" });
+  return <p>{email}</p>;
+}
+```
+
+### Controlled components
+
+`Controller` connects a controlled component to the form. It renders with
+`field` (`name`, `value`, `onChange`, `onBlur`, `ref`) and `fieldState`
+(`error`, `invalid`, `touched`, `dirty`), and reuses the same validation
+engine as `register()`:
+
+```tsx
+import { Controller } from "react-smart-form";
+
+<Controller
+  control={form.control}
+  name="country"
+  render={({ field, fieldState }) => (
+    <>
+      <Select value={field.value} onChange={field.onChange} onBlur={field.onBlur} />
+      {fieldState.error && <span>{fieldState.error.message}</span>}
+    </>
+  )}
+/>;
+```
+
+`field.onChange` accepts both a native change event and a raw value, so custom
+components can call `field.onChange("us")` directly.
+
+### `resetField()`
+
+Resets a single field to its default value and clears its error, touched and
+dirty state. Other fields are unaffected:
+
+```ts
+form.resetField("email");
+```
+
+### Advanced `setValue()`
+
+Programmatic updates never touch or validate by default. Opt in per call:
+
+```ts
+form.setValue("email", "test@example.com", {
+  shouldValidate: true, // run validation for the field after updating
+  shouldTouch: true, // mark the field as touched
+  shouldDirty: true, // mark the field as dirty, even if the value equals the default
+});
+```
+
 ## Development
 
 ```bash
@@ -296,11 +371,13 @@ npm run build        # build the distributable package into dist/
 - [x] Zod resolver (`zodResolver`).
 - [x] Form submission: `handleSubmit()`, `onSubmit`/`onError`, `isSubmitting`,
       `isSubmitted`, `submitCount`.
+- [x] `watch()` and reactive value watching.
+- [x] `Controller` component for controlled fields.
+- [x] `useWatch()` hook with field-level subscriptions.
+- [x] `resetField()`, advanced `setValue()` options, stable `control`.
 - [ ] Nested field-path support (`"user.name"`, arrays).
 - [ ] Yup resolver.
 - [ ] Valibot resolver.
-- [ ] `Controller` component for controlled fields.
-- [ ] `watch()`.
 - [ ] Error handling and ergonomics for async submissions.
 - [ ] Publish to npm.
 

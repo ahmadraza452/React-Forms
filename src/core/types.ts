@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 /**
  * The shape of any form's values.
  *
@@ -108,6 +110,33 @@ export type ValidationMode = "onSubmit" | "onBlur" | "onChange";
  */
 export type ReValidateMode = "onChange" | "onBlur";
 
+/**
+ * Options accepted by {@link UseSmartFormReturn.setValue}.
+ */
+export interface SetValueOptions {
+  /**
+   * Validate the field after updating it.
+   *
+   * Defaults to `false` — programmatic updates do not run validation unless
+   * requested.
+   */
+  shouldValidate?: boolean;
+  /**
+   * Mark the field as touched.
+   *
+   * Defaults to `false`.
+   */
+  shouldTouch?: boolean;
+  /**
+   * Mark the field as dirty, even when the new value equals the default.
+   *
+   * Defaults to `false`. Note that a field whose value differs from its
+   * default is always dirty regardless of this option (dirty state is derived
+   * from the value comparison).
+   */
+  shouldDirty?: boolean;
+}
+
 /** Options accepted by {@link useSmartForm}. */
 export interface UseSmartFormOptions<TFieldValues extends FieldValues> {
   /**
@@ -209,6 +238,168 @@ export interface FieldState<TFieldValues extends FieldValues, TPath extends Path
   invalid: boolean;
 }
 
+/**
+ * The internal/external control object used by {@link useWatch} and
+ * {@link Controller}.
+ *
+ * Created once by {@link useSmartForm} and stable across renders. It exposes a
+ * minimal surface: subscription hooks (so components re-render only when the
+ * fields they care about change), read access, and the mutation bridge used by
+ * controlled components. Implementation details of the form are not exposed.
+ */
+export interface Control<TFieldValues extends FieldValues> {
+  /**
+   * Subscribes to all form value/state changes.
+   *
+   * Returns an unsubscribe function.
+   */
+  subscribe: (listener: () => void) => () => void;
+
+  /**
+   * Subscribes to a single field's changes.
+   *
+   * Returns an unsubscribe function.
+   */
+  subscribeField: <TPath extends Path<TFieldValues>>(
+    name: TPath,
+    listener: () => void,
+  ) => () => void;
+
+  /**
+   * The current store version.
+   *
+   * Used as the `getSnapshot` value for `useSyncExternalStore`: it changes
+   * only when subscribed fields change.
+   */
+  getSnapshot: () => number;
+
+  /** Returns a deep copy of the current form values. */
+  getValues: () => TFieldValues;
+
+  /** Returns a deep copy of a single field's current value. */
+  getValue: <TPath extends Path<TFieldValues>>(name: TPath) => TFieldValues[TPath];
+
+  /** Returns the current state of a single field. */
+  getFieldState: <TPath extends Path<TFieldValues>>(name: TPath) => FieldState<TFieldValues, TPath>;
+
+  /**
+   * Updates a field's value as if the user changed it.
+   *
+   * Used by `Controller`'s `field.onChange`. Runs the configured validation
+   * behavior (`mode` / `reValidateMode`) like `register()`'s `onChange` does.
+   */
+  updateField: <TPath extends Path<TFieldValues>>(name: TPath, value: TFieldValues[TPath]) => void;
+
+  /**
+   * Marks a field as touched as if it lost focus.
+   *
+   * Used by `Controller`'s `field.onBlur`. Runs the configured validation
+   * behavior (`mode` / `reValidateMode`) like `register()`'s `onBlur` does.
+   */
+  blurField: <TPath extends Path<TFieldValues>>(name: TPath) => void;
+
+  /** Registers a controlled field's DOM element with the form. */
+  setFieldRef: (name: Path<TFieldValues>, element: HTMLElement | null) => void;
+}
+
+/**
+ * The callable `watch` API returned by {@link useSmartForm}.
+ */
+export type WatchFunction<TFieldValues extends FieldValues> = {
+  /** Returns a deep copy of the complete current form values. */
+  (): TFieldValues;
+  /** Returns a deep copy of a single field's current value. */
+  <TPath extends Path<TFieldValues>>(name: TPath): TFieldValues[TPath];
+  /** Returns deep copies of the given fields' current values. */
+  <TPaths extends readonly Path<TFieldValues>[]>(
+    names: readonly [...TPaths],
+  ): {
+    [K in keyof TPaths]: TFieldValues[TPaths[K]];
+  };
+};
+
+/** Props accepted by {@link useWatch}. */
+export interface UseWatchProps<TFieldValues extends FieldValues> {
+  /** The form control object returned by {@link useSmartForm}. */
+  control: Control<TFieldValues>;
+  /**
+   * The field to watch.
+   *
+   * Omit this to watch the whole form (re-renders on any value/state change).
+   */
+  name?: Path<TFieldValues>;
+}
+
+/**
+ * The `field` object rendered by {@link Controller}.
+ */
+export interface ControllerField<
+  TFieldValues extends FieldValues,
+  TName extends Path<TFieldValues>,
+> {
+  /** The controlled field name. */
+  name: TName;
+  /** The current value of the field. */
+  value: TFieldValues[TName];
+  /**
+   * Updates the form value.
+   *
+   * Accepts either a native change event or a raw value:
+   *
+   * ```ts
+   * field.onChange(event); // native input
+   * field.onChange("new value"); // custom component
+   * ```
+   */
+  onChange: (...event: unknown[]) => void;
+  /** Marks the field as touched (and validates per `mode`). */
+  onBlur: (...event: unknown[]) => void;
+  /** Registers the underlying DOM element with the form. */
+  ref: (element: HTMLElement | null) => void;
+}
+
+/**
+ * The `fieldState` object rendered by {@link Controller}.
+ */
+export interface ControllerFieldState {
+  /** The validation error for the field, if any. */
+  error: FieldError | undefined;
+  /** Whether the field currently has a validation error. */
+  invalid: boolean;
+  /** Whether the field has been focused and blurred at least once. */
+  touched: boolean;
+  /** Whether the field's value differs from its original default value. */
+  dirty: boolean;
+}
+
+/**
+ * The render props passed to {@link Controller}'s `render` function.
+ */
+export interface ControllerRenderProps<
+  TFieldValues extends FieldValues,
+  TName extends Path<TFieldValues>,
+> {
+  /** The props to spread onto a controlled component. */
+  field: ControllerField<TFieldValues, TName>;
+  /** The current state of the controlled field. */
+  fieldState: ControllerFieldState;
+}
+
+/**
+ * Props accepted by {@link Controller}.
+ */
+export interface ControllerProps<
+  TFieldValues extends FieldValues,
+  TName extends Path<TFieldValues>,
+> {
+  /** The form control object returned by {@link useSmartForm}. */
+  control: Control<TFieldValues>;
+  /** The field to control. */
+  name: TName;
+  /** Renders the controlled component with the current `field` and `fieldState`. */
+  render: (props: ControllerRenderProps<TFieldValues, TName>) => ReactNode;
+}
+
 /** The object returned by {@link useSmartForm}. */
 export interface UseSmartFormReturn<TFieldValues extends FieldValues> {
   /**
@@ -227,9 +418,16 @@ export interface UseSmartFormReturn<TFieldValues extends FieldValues> {
    * Updates the value of a single field and triggers a re-render.
    *
    * The field name and its value are type-checked against the form shape.
+   * Programmatic updates do not mark the field as touched or run validation by
+   * default; pass {@link SetValueOptions} to opt in.
+   *
    * Currently supports top-level fields; nested path support is planned.
    */
-  setValue: <TPath extends Path<TFieldValues>>(name: TPath, value: TFieldValues[TPath]) => void;
+  setValue: <TPath extends Path<TFieldValues>>(
+    name: TPath,
+    value: TFieldValues[TPath],
+    options?: SetValueOptions,
+  ) => void;
 
   /**
    * Resets the form.
@@ -259,8 +457,22 @@ export interface UseSmartFormReturn<TFieldValues extends FieldValues> {
   ) => UseSmartFormRegisterReturn<TFieldValues, TPath>;
 
   /**
+   * Watches the current form values.
+   *
+   * Called without arguments it returns a deep copy of the whole form. When
+   * called during render, it is reactive: the component re-renders when the
+   * watched values change.
+   *
+   * ```tsx
+   * const email = form.watch("email");
+   * const [email, password] = form.watch(["email", "password"]);
+   * ```
+   */
+  watch: WatchFunction<TFieldValues>;
+
+  /**
    * Per-field dirty state: `true` when a field's value differs from its
-   * original default value.
+   * original default value (or it was explicitly marked dirty).
    */
   dirtyFields: Record<keyof TFieldValues, boolean>;
 
@@ -299,6 +511,14 @@ export interface UseSmartFormReturn<TFieldValues extends FieldValues> {
   clearErrors: (name?: Path<TFieldValues>) => void;
 
   /**
+   * Resets a single field to its default value.
+   *
+   * Also clears the field's error, touched and dirty state. Other fields are
+   * not affected.
+   */
+  resetField: <TPath extends Path<TFieldValues>>(name: TPath) => void;
+
+  /**
    * Current validation errors for all fields.
    */
   errors: FieldErrors<TFieldValues>;
@@ -328,6 +548,13 @@ export interface UseSmartFormReturn<TFieldValues extends FieldValues> {
    * if `onSubmit` throws (unexpected errors are not swallowed).
    */
   handleSubmit: (event?: { preventDefault: () => void }) => Promise<void>;
+
+  /**
+   * The control object used by `useWatch` and `Controller`.
+   *
+   * Stable across renders.
+   */
+  control: Control<TFieldValues>;
 
   /**
    * Whether a submission is currently in progress.
