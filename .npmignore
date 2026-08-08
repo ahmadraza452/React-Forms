@@ -1,0 +1,16 @@
+# Note: the "files" field in package.json takes precedence and already limits
+# the published package to build output and documentation. This file is kept
+# as an additional, explicit guard.
+node_modules/
+src/
+tests/
+examples/
+dist/
+coverage/
+vite.config.ts
+vitest.config.ts
+tsconfig.json
+tsconfig.build.json
+eslint.config.js
+prettier.config.js
+*.log
