@@ -77,6 +77,28 @@ export type Validator<TFieldValues extends FieldValues> = (
 ) => ValidationResult<TFieldValues> | Promise<ValidationResult<TFieldValues>>;
 
 /**
+ * A function invoked when the form is submitted and validation passes.
+ *
+ * Receives the validated values. When a resolver returns transformed values
+ * (e.g. Zod coercion via `zodResolver`), the parsed values are passed. May be
+ * asynchronous; {@link UseSmartFormReturn.isSubmitting} stays `true` until the
+ * returned promise settles.
+ */
+export type SubmitHandler<TFieldValues extends FieldValues> = (
+  values: TFieldValues,
+) => void | Promise<void>;
+
+/**
+ * A function invoked when a submission attempt fails validation.
+ *
+ * Receives the current field errors. Never invoked for unexpected errors
+ * thrown inside `onSubmit`.
+ */
+export type SubmitErrorHandler<TFieldValues extends FieldValues> = (
+  errors: FieldErrors<TFieldValues>,
+) => void;
+
+/**
  * Configuration options for validation behavior.
  */
 export type ValidationMode = "onSubmit" | "onBlur" | "onChange";
@@ -103,6 +125,23 @@ export interface UseSmartFormOptions<TFieldValues extends FieldValues> {
    * and a map of field errors.
    */
   validate?: Validator<TFieldValues>;
+
+  /**
+   * Called when the form is submitted and validation passes.
+   *
+   * Receives the validated values (parsed/transformed by the resolver when one
+   * is configured, e.g. Zod coercion). May be asynchronous; `isSubmitting`
+   * stays `true` until the returned promise settles.
+   */
+  onSubmit?: SubmitHandler<TFieldValues>;
+
+  /**
+   * Called when a submission attempt fails validation.
+   *
+   * Receives the current field errors. Never called for unexpected errors
+   * thrown inside `onSubmit`.
+   */
+  onError?: SubmitErrorHandler<TFieldValues>;
 
   /**
    * When to validate the form.
@@ -271,4 +310,47 @@ export interface UseSmartFormReturn<TFieldValues extends FieldValues> {
    * After validation runs, it reflects the actual validation state.
    */
   isValid: boolean;
+
+  /**
+   * Submits the form: prevents the browser's default behavior, runs validation
+   * and then calls `onSubmit` with the validated values — or `onError` with the
+   * field errors when validation fails.
+   *
+   * ```tsx
+   * <form onSubmit={form.handleSubmit}>
+   * ```
+   *
+   * @param event - Optional form event. When passed directly as a form
+   * `onSubmit` handler, React provides the event automatically. The default
+   * browser submission is always prevented; callers do not need to call
+   * `event.preventDefault()` manually.
+   * @returns A promise that resolves when the submission finishes and rejects
+   * if `onSubmit` throws (unexpected errors are not swallowed).
+   */
+  handleSubmit: (event?: { preventDefault: () => void }) => Promise<void>;
+
+  /**
+   * Whether a submission is currently in progress.
+   *
+   * Becomes `true` while the `onSubmit` callback runs and is reset to `false`
+   * when it finishes — even if it throws. Duplicate submission attempts are
+   * ignored while a submission is already running.
+   */
+  isSubmitting: boolean;
+
+  /**
+   * Whether the form has been submitted/attempted at least once.
+   *
+   * Becomes `true` after any submission attempt, including attempts that fail
+   * validation, and is reset to `false` by {@link reset}.
+   */
+  isSubmitted: boolean;
+
+  /**
+   * The number of submission attempts made so far.
+   *
+   * Incremented on every attempt, including attempts that fail validation,
+   * and reset to `0` by {@link reset}.
+   */
+  submitCount: number;
 }

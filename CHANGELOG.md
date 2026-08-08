@@ -32,10 +32,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   array paths, and returns Zod's parsed/transformed values on success. Zod is
   an optional peer dependency and is never bundled (type-only import).
 - Zod resolver unit tests, form integration tests and type-inference tests.
+- Form submission: `handleSubmit()` (usable directly as a form `onSubmit`
+  handler), `onSubmit` / `onError` options, `isSubmitting`, `isSubmitted` and
+  `submitCount`. Submission validates before calling `onSubmit`, passes
+  resolver-parsed values (e.g. Zod coercion) through, prevents duplicate
+  concurrent submissions and resets `isSubmitting` even when `onSubmit`
+  throws.
+- Submission tests: valid/invalid submission, async `isSubmitting` lifecycle,
+  `onSubmit` errors, `submitCount`, `isSubmitted`, reset, duplicate
+  submissions and Zod-parsed values reaching `onSubmit`.
 
 ### Changed
 
-- Package version bumped to `0.4.0`.
+- Package version bumped to `0.5.0`.
 - `FieldValues` constraint widened to `object` so `interface` form shapes are
   accepted (interfaces have no implicit index signature).
 - Removed the temporary `VERSION` placeholder export; `useSmartForm` is now

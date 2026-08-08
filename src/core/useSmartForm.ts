@@ -12,6 +12,7 @@ import type {
   UseSmartFormOptions,
   UseSmartFormRegisterReturn,
   UseSmartFormReturn,
+  ValidationResult,
 } from "./types";
 
 /**
@@ -47,7 +48,7 @@ function toDisplayValue(value: unknown): unknown {
 export function useSmartForm<TFieldValues extends FieldValues>(
   options: UseSmartFormOptions<TFieldValues>,
 ): UseSmartFormReturn<TFieldValues> {
-  const { validate, mode = "onSubmit", reValidateMode = "onChange" } = options;
+  const { validate, mode = "onSubmit", reValidateMode = "onChange", onSubmit, onError } = options;
 
   const defaultValuesRef = useRef<TFieldValues | null>(null);
   if (defaultValuesRef.current === null) {
@@ -89,6 +90,16 @@ export function useSmartForm<TFieldValues extends FieldValues>(
     errorsRef.current = next;
     forceUpdate((n) => n + 1);
   }, []);
+
+  // -------------------------------------------------------------------
+  // Submission state: isSubmitting, isSubmitted, submitCount.
+  // `isSubmittingRef` mirrors `isSubmitting` so the duplicate-submission
+  // guard in handleSubmit can be checked synchronously, before any await.
+  // -------------------------------------------------------------------
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmitted, setIsSubmitted] = useState(false);
+  const [submitCount, setSubmitCount] = useState(0);
+  const isSubmittingRef = useRef(false);
 
   const fieldRefs = useRef<Record<string, HTMLElement | null>>({});
 
@@ -149,15 +160,16 @@ export function useSmartForm<TFieldValues extends FieldValues>(
   );
 
   const validateAll = useCallback(
-    async (currentValues: TFieldValues): Promise<FieldErrors<TFieldValues>> => {
-      if (!validate) return {};
+    async (currentValues: TFieldValues): Promise<ValidationResult<TFieldValues>> => {
+      if (!validate) {
+        return { values: currentValues, errors: {} };
+      }
 
       try {
-        const result = await validate(currentValues);
-        return result.errors || {};
+        return await validate(currentValues);
       } catch {
-        // If validation throws, treat as error on all fields
-        return {};
+        // If validation throws, treat as valid with no errors
+        return { values: currentValues, errors: {} };
       }
     },
     [validate],
@@ -182,7 +194,8 @@ export function useSmartForm<TFieldValues extends FieldValues>(
         commitErrors(next);
         return !fieldError;
       } else {
-        const allErrors = await validateAll(currentValues);
+        const result = await validateAll(currentValues);
+        const allErrors = result.errors;
         commitErrors(allErrors);
         return Object.keys(allErrors).length === 0;
       }
@@ -203,6 +216,40 @@ export function useSmartForm<TFieldValues extends FieldValues>(
     [commitErrors],
   );
 
+  const handleSubmit = useCallback(
+    async (event?: { preventDefault: () => void }) => {
+      // Always prevent the browser's default form submission behavior,
+      // even for duplicate attempts that are ignored below.
+      event?.preventDefault?.();
+
+      // Ignore duplicate submissions while one is already in progress.
+      if (isSubmittingRef.current) return;
+
+      isSubmittingRef.current = true;
+      setIsSubmitting(true);
+      setIsSubmitted(true);
+      setSubmitCount((count) => count + 1);
+
+      try {
+        const result = await validateAll(valuesRef.current);
+        commitErrors(result.errors);
+
+        if (Object.keys(result.errors).length === 0) {
+          // Pass the parsed/transformed values (e.g. Zod coercion) when the
+          // resolver provides them; otherwise fall back to the raw values.
+          await onSubmit?.(result.values ?? valuesRef.current);
+        } else {
+          onError?.(result.errors);
+        }
+      } finally {
+        // Always reset the loading state, even if onSubmit throws.
+        isSubmittingRef.current = false;
+        setIsSubmitting(false);
+      }
+    },
+    [validateAll, onSubmit, onError, commitErrors],
+  );
+
   const reset = useCallback(
     (nextValues?: TFieldValues) => {
       if (nextValues === undefined) {
@@ -217,6 +264,11 @@ export function useSmartForm<TFieldValues extends FieldValues>(
         setTouchedFields(initialTouchedState(nextValues));
       }
       commitErrors({});
+      // Reset the submission state as well.
+      isSubmittingRef.current = false;
+      setIsSubmitting(false);
+      setIsSubmitted(false);
+      setSubmitCount(0);
     },
     [commitErrors],
   );
@@ -321,6 +373,10 @@ export function useSmartForm<TFieldValues extends FieldValues>(
       isDirty,
       trigger: runValidation,
       clearErrors,
+      handleSubmit,
+      isSubmitting,
+      isSubmitted,
+      submitCount,
       get errors() {
         return errorsRef.current;
       },
@@ -342,6 +398,10 @@ export function useSmartForm<TFieldValues extends FieldValues>(
     r.isDirty = isDirty;
     r.trigger = runValidation;
     r.clearErrors = clearErrors;
+    r.handleSubmit = handleSubmit;
+    r.isSubmitting = isSubmitting;
+    r.isSubmitted = isSubmitted;
+    r.submitCount = submitCount;
   }
 
   return returnRef.current;
