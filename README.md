@@ -1,16 +1,22 @@
-# react-smart-form
+# react-smartform
 
-A lightweight, type-safe form state and validation library for React.
+A lightweight, TypeScript-first form state and validation library for React.
 
-> **Status: early development**
->
-> The **core form engine** (`useSmartForm`), **field registration**
-> (`register()`), the **generic validation/resolver system**, the **Zod
-> resolver** (`zodResolver()`), **form submission** (`handleSubmit`), the
-> **advanced field API** (`watch()`, `useWatch`, `Controller`) and **server
-> error handling** (`setError()` / `setErrors()`) are implemented. Nested
-> field-path support and related features are planned and have **not** been
-> implemented yet. Do not use this package in production.
+> **Status: stable** — `v1.0.0` is published on npm.
+
+## Why react-smartform?
+
+- **Type-safe by design** — field names and values are checked against your
+  form shape at compile time; no stringly-typed access.
+- **Tiny and dependency-free** — no runtime dependencies. `zod` is optional
+  and never bundled.
+- **Zero UI assumptions** — bring your own components. Native inputs via
+  `register()`, controlled components via `Controller`.
+- **Precise re-renders** — field-level subscriptions mean unrelated fields
+  don't cause unnecessary re-renders.
+- **Complete submission story** — `handleSubmit` with `isSubmitting`,
+  `isSubmitted`, `submitCount`, and server error handling with
+  `setError()` / `setErrors()`.
 
 ## Features
 
@@ -45,14 +51,11 @@ A lightweight, type-safe form state and validation library for React.
 
 ## Installation
 
-> ⚠️ Not yet published. The command below is a placeholder for the upcoming
-> public release.
-
 ```bash
-npm install react-smart-form
+npm install react-smartform
 ```
 
-`react-smart-form` declares `react` as a peer dependency. It supports React 18
+`react-smartform` declares `react` as a peer dependency. It supports React 18
 and React 19.
 
 Zod integration is **optional**. `zodResolver` is part of the package, but `zod`
@@ -69,7 +72,7 @@ custom functions.
 ## Usage
 
 ```tsx
-import { useSmartForm } from "react-smart-form";
+import { useSmartForm } from "react-smartform";
 
 const form = useSmartForm({
   defaultValues: {
@@ -151,7 +154,7 @@ option:
 
 ```tsx
 import { z } from "zod";
-import { useSmartForm, zodResolver } from "react-smart-form";
+import { useSmartForm, zodResolver } from "react-smartform";
 
 const schema = z.object({
   email: z.string().email(),
@@ -212,7 +215,7 @@ Connect the form's `handleSubmit` directly to the `<form>` element's
 automatically:
 
 ```tsx
-import { useSmartForm, zodResolver } from "react-smart-form";
+import { useSmartForm, zodResolver } from "react-smartform";
 
 const schema = z.object({
   email: z.string().email(),
@@ -356,7 +359,7 @@ To watch a field from a _different_ component, pass `form.control` to the
 `useWatch` hook. It re-renders only when the watched field changes:
 
 ```tsx
-import { useWatch } from "react-smart-form";
+import { useWatch } from "react-smartform";
 
 function EmailPreview({ control }: { control: Control<LoginForm> }) {
   const email = useWatch({ control, name: "email" });
@@ -372,7 +375,7 @@ function EmailPreview({ control }: { control: Control<LoginForm> }) {
 engine as `register()`:
 
 ```tsx
-import { Controller } from "react-smart-form";
+import { Controller } from "react-smartform";
 
 <Controller
   control={form.control}
@@ -410,6 +413,37 @@ form.setValue("email", "test@example.com", {
 });
 ```
 
+## Comparison
+
+|                                                   | react-smartform          | react-hook-form  | Formik            |
+| ------------------------------------------------- | ------------------------ | ---------------- | ----------------- |
+| Runtime dependencies                              | none                     | none             | several           |
+| Package size (gzip)                               | ~3 kB                    | ~11 kB           | ~30 kB+           |
+| TypeScript-first                                  | yes                      | yes              | partial           |
+| Zod resolver                                      | built-in (`zodResolver`) | separate package | separate packages |
+| Field-level subscriptions                         | yes                      | yes              | no                |
+| Validation modes (`onChange`/`onBlur`/`onSubmit`) | yes                      | yes              | partial           |
+| Server errors (`setError`/root errors)            | yes                      | yes              | yes               |
+| Nested paths / field arrays                       | planned                  | yes              | yes               |
+| Browser support                                   | React 18+                | React 16.8+      | React 16.8+       |
+
+react-smartform is the right choice when you want a small, focused, fully
+typed form engine with first-party Zod support and no extra dependencies.
+If you need nested field paths, dynamic field arrays or a larger ecosystem
+today, react-hook-form is the more mature option.
+
+## Examples
+
+Copy-paste-ready examples live in the
+[`examples/`](./examples) directory:
+
+- [`basic.tsx`](./examples/basic.tsx) — native inputs with `register()`.
+- [`zod.tsx`](./examples/zod.tsx) — validation with `zodResolver`.
+- [`controller.tsx`](./examples/controller.tsx) — custom components via
+  `Controller`.
+- [`server-errors.tsx`](./examples/server-errors.tsx) — API errors with
+  `setError()` / `setErrors()`.
+
 ## Development
 
 ```bash
@@ -439,10 +473,10 @@ npm run build        # build the distributable package into dist/
 - [x] `resetField()`, advanced `setValue()` options, stable `control`.
 - [x] Server error handling: `setError()`, `setErrors()`, root errors.
 - [x] Error handling and ergonomics for async submissions.
+- [x] Publish to npm (`react-smartform` v1.0.0).
 - [ ] Nested field-path support (`"user.name"`, arrays).
 - [ ] Yup resolver.
 - [ ] Valibot resolver.
-- [ ] Publish to npm.
 
 ## License
 

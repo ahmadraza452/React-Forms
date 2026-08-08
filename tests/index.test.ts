@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { Controller, useSmartForm, useWatch, zodResolver } from "../src/index";
 
-describe("react-smart-form public API", () => {
+describe("react-smartform public API", () => {
   it("exports the useSmartForm hook", () => {
     expect(typeof useSmartForm).toBe("function");
   });

@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0]
 
 ### Added
 
@@ -45,7 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Package version bumped to `0.7.0`.
+- Published as `1.0.0` — first public release. Package renamed from
+  `react-smart-form` (name already taken on npm) to `react-smartform`.
 
 ### Fixed
 
@@ -57,7 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   was passed.
 - Empty field-subscription maps stayed in the store after unsubscribing.
 
-## Previous development work (not yet published)
+## Pre-release development (0.5.0 - 0.6.0)
 
 ### Added
 

@@ -1,5 +1,5 @@
 /**
- * react-smart-form
+ * react-smartform
  *
  * A lightweight, type-safe form state and validation library for React.
  *

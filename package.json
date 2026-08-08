@@ -1,19 +1,21 @@
 {
-  "name": "react-smart-form",
-  "version": "0.7.0",
-  "description": "A lightweight, type-safe form state and validation library for React.",
+  "name": "react-smartform",
+  "version": "1.0.0",
+  "description": "A lightweight, TypeScript-first form library for React with validation, Zod support, controlled fields, and server error handling.",
   "keywords": [
     "react",
     "react-hooks",
+    "react-form",
     "forms",
     "form",
+    "form-library",
+    "form-validation",
     "validation",
     "typescript",
-    "zod",
-    "yup",
-    "valibot"
+    "zod"
   ],
   "license": "MIT",
+  "author": "Ahmad Raza <ahmadraza.bablo1@gmail.com>",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
