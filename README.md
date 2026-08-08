@@ -5,10 +5,10 @@ A lightweight, type-safe form state and validation library for React.
 > **Status: early development**
 >
 > The **core form engine** (`useSmartForm`), **field registration**
-> (`register()`), the **generic validation/resolver system** and the **Zod
-> resolver** (`zodResolver()`) are implemented. `handleSubmit`, `Controller`,
-> and related features are planned and have **not** been implemented yet. Do
-> not use this package in production.
+> (`register()`), the **generic validation/resolver system**, the **Zod
+> resolver** (`zodResolver()`) and **form submission** (`handleSubmit`) are
+> implemented. `Controller` and related features are planned and have **not**
+> been implemented yet. Do not use this package in production.
 
 ## Features
 
@@ -24,12 +24,13 @@ A lightweight, type-safe form state and validation library for React.
   (`onSubmit`, `onBlur`, `onChange` + `reValidateMode`).
 - Generic validation/resolver system (sync, async, combined validators).
 - Optional Zod integration via `zodResolver(schema)`.
+- Form submission: `handleSubmit()`, `onSubmit`, `onError`, `isSubmitting`,
+  `isSubmitted` and `submitCount`.
 - No mutation of the `defaultValues` object you pass in.
 - No UI components required — bring your own.
 
 ### Planned
 
-- `handleSubmit()`.
 - Yup and Valibot resolvers.
 - `Controller` for controlled fields.
 - Nested field-path support (`"user.name"`, arrays).
@@ -198,6 +199,80 @@ const isValid = await form.trigger(); // validate the whole form
 const isEmailValid = await form.trigger("email"); // validate one field
 ```
 
+### Form submission
+
+Connect the form's `handleSubmit` directly to the `<form>` element's
+`onSubmit` — the browser's default submission behavior is prevented
+automatically:
+
+```tsx
+import { useSmartForm, zodResolver } from "react-smart-form";
+
+const schema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8),
+});
+
+const form = useSmartForm({
+  defaultValues: {
+    email: "",
+    password: "",
+  },
+
+  validate: zodResolver(schema),
+
+  onSubmit: async (values) => {
+    await login(values);
+  },
+
+  onError: (errors) => {
+    console.log(errors);
+  },
+});
+
+return (
+  <form onSubmit={form.handleSubmit}>
+    <input {...form.register("email")} />
+
+    <input type="password" {...form.register("password")} />
+
+    {form.errors.email?.message}
+
+    <button type="submit" disabled={form.isSubmitting}>
+      {form.isSubmitting ? "Logging in..." : "Login"}
+    </button>
+  </form>
+);
+```
+
+Submission lifecycle:
+
+1. `handleSubmit` prevents the default browser behavior and runs validation.
+2. If validation **fails**, the form errors are populated and `onError(errors)`
+   is called. `onSubmit` is **not** executed.
+3. If validation **passes**, `onSubmit(values)` is called with the validated
+   values. When a resolver transforms values (e.g. Zod coercion with
+   `z.coerce.number()`), the parsed values are passed to `onSubmit`.
+4. `isSubmitting` is `true` while an async `onSubmit` is running and is always
+   reset to `false` when it finishes — even if `onSubmit` throws. Duplicate
+   submissions are ignored while one is already in progress.
+
+Submission state:
+
+- `isSubmitting` — `true` while a submission is in progress.
+- `isSubmitted` — `true` after any submission attempt, including attempts that
+  fail validation.
+- `submitCount` — the number of submission attempts made.
+
+`onSubmit` only runs after successful validation. If `onSubmit` throws, the
+error is not swallowed — the promise returned by `handleSubmit` rejects and
+`isSubmitting` is reset.
+
+After a successful submission the form is **not** reset automatically. Call
+`form.reset()` explicitly when you want to clear the form; `reset()` also
+resets `isSubmitting`, `isSubmitted`, `submitCount`, errors, dirty and touched
+state.
+
 ## Development
 
 ```bash
@@ -219,8 +294,9 @@ npm run build        # build the distributable package into dist/
 - [x] Validation: `trigger()`, `errors`, `isValid`, validation modes.
 - [x] Generic validation/resolver system.
 - [x] Zod resolver (`zodResolver`).
+- [x] Form submission: `handleSubmit()`, `onSubmit`/`onError`, `isSubmitting`,
+      `isSubmitted`, `submitCount`.
 - [ ] Nested field-path support (`"user.name"`, arrays).
-- [ ] `handleSubmit()`.
 - [ ] Yup resolver.
 - [ ] Valibot resolver.
 - [ ] `Controller` component for controlled fields.
