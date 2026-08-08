@@ -9,6 +9,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Advanced field API:
+  - `watch()` — watch the whole form, a single field or multiple fields, with
+    correctly typed returns. Reactive during render (the component re-renders
+    when the watched values change).
+  - `useWatch({ control, name })` — watch a field (or the whole form) from any
+    component. Re-renders only when the watched field(s) change.
+  - `Controller` — controlled-component API exposing `field` (`name`, `value`,
+    `onChange`, `onBlur`, `ref`) and reactive `fieldState` (`error`, `invalid`,
+    `touched`, `dirty`). Reuses the existing resolver/validation engine
+    (`mode` / `reValidateMode`).
+  - `form.control` — stable control object used by `useWatch`/`Controller`;
+    exposes subscriptions, reads and the controlled-field mutation bridge.
+  - Field-level subscription store: subscribed components are notified only
+    when their fields change; unrelated fields do not cause unnecessary
+    re-renders. Dependency-free (React `useSyncExternalStore`).
+  - `setValue(name, value, options)` — optional `shouldValidate`,
+    `shouldTouch` and `shouldDirty`; defaults stay backwards-compatible
+    (no touch/validation).
+  - `resetField(name)` — resets a single field to its default and clears its
+    error, touched and dirty state without affecting other fields.
+  - `clearErrors()` / `trigger()` now notify field subscribers reactively.
+  - New public types: `Control`, `WatchFunction`, `UseWatchProps`,
+    `ControllerProps`, `ControllerRenderProps`, `ControllerField`,
+    `ControllerFieldState`, `SetValueOptions`.
+- Tests: `watch` (whole/single/multiple, reactivity), `useWatch`, `Controller`
+  (value updates, blur, validation modes, reactive error/touched/dirty),
+  `setValue` options, `resetField`, field subscriptions (no unnecessary
+  updates), advanced type safety (invalid names/value types rejected).
+- `register()` now shares its change/blur logic with `Controller` via the
+  control bridge, keeping both paths consistent.
+
+### Changed
+
+- Package version bumped to `0.6.0`.
+
 - Project scaffolding: TypeScript, Vite library mode, Vitest, ESLint, Prettier.
 - Core form engine: `useSmartForm` hook with `defaultValues`, `getValues`,
   `getValue`, `setValue`, `reset` and `isDirty`.

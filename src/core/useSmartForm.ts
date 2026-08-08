@@ -2,17 +2,22 @@ import { useCallback, useMemo, useRef, useState } from "react";
 
 import { deepClone } from "../utils/deepClone";
 import { deepEqual } from "../utils/deepEqual";
+import { getEventValue } from "./eventValue";
+import { createFieldSubscriptionStore, type FieldSubscriptionStore } from "./store";
 import type {
   ChangeHandler,
+  Control,
   FieldError,
   FieldErrors,
   FieldState,
   FieldValues,
   Path,
+  SetValueOptions,
   UseSmartFormOptions,
   UseSmartFormRegisterReturn,
   UseSmartFormReturn,
   ValidationResult,
+  WatchFunction,
 } from "./types";
 
 /**
@@ -40,10 +45,15 @@ function toDisplayValue(value: unknown): unknown {
 
 /**
  * Manages the state of a form: values, default values, field registration,
- * single-field reads and writes, reset, and form state.
+ * single-field reads and writes, reset, form state, watching and controlled
+ * components.
  *
  * The form keeps its own copy of `defaultValues` and never mutates the object
  * passed by the caller.
+ *
+ * Components that need to react to individual fields (`useWatch`,
+ * `Controller`) subscribe through `form.control` and re-render only when their
+ * subscribed fields change, instead of on every form-wide change.
  */
 export function useSmartForm<TFieldValues extends FieldValues>(
   options: UseSmartFormOptions<TFieldValues>,
@@ -54,19 +64,33 @@ export function useSmartForm<TFieldValues extends FieldValues>(
   if (defaultValuesRef.current === null) {
     defaultValuesRef.current = deepClone(options.defaultValues);
   }
+  const defaults = defaultValuesRef.current as TFieldValues;
 
   const [values, setValues] = useState<TFieldValues>(() => deepClone(options.defaultValues));
 
   /**
-   * Always holds the latest values snapshot so async callbacks (runValidation,
-   * register onChange) never read stale state from a closed-over render.
+   * Always holds the latest values snapshot so async callbacks and subscribed
+   * components never read stale state from a closed-over render.
    */
   const valuesRef = useRef<TFieldValues>(values);
   valuesRef.current = values;
 
+  /**
+   * Touched state is kept in a ref (for synchronous reads by subscribed
+   * components) and mirrored in React state (to re-render the host component).
+   */
   const [touchedFields, setTouchedFields] = useState<Record<string, boolean>>(() =>
     initialTouchedState(options.defaultValues),
   );
+  const touchedRef = useRef<Record<string, boolean>>(initialTouchedState(options.defaultValues));
+
+  /**
+   * Dirty overrides let `setValue(name, value, { shouldDirty: true })` force a
+   * field dirty even when its value equals the default. Like touched, it lives
+   * in a ref (reads) mirrored in state (host re-renders).
+   */
+  const [dirtyOverrides, setDirtyOverrides] = useState<Record<string, boolean>>({});
+  const dirtyOverridesRef = useRef<Record<string, boolean>>({});
 
   // -------------------------------------------------------------------
   // Errors are stored in a ref (for synchronous reads immediately after
@@ -80,16 +104,47 @@ export function useSmartForm<TFieldValues extends FieldValues>(
   const [, forceUpdate] = useState(0);
   const errorsRef = useRef<FieldErrors<TFieldValues>>({});
 
+  // -------------------------------------------------------------------
+  // Field-subscription store.
+  //
+  // `useWatch`/`Controller` components subscribe through `form.control` and
+  // are notified only when the fields they care about change. The store lives
+  // outside React state so it can be notified synchronously from within event
+  // handlers and async callbacks.
+  // -------------------------------------------------------------------
+  const storeRef = useRef<FieldSubscriptionStore | null>(null);
+  if (storeRef.current === null) {
+    storeRef.current = createFieldSubscriptionStore();
+  }
+  const store = storeRef.current!;
+
+  const notifyFields = useCallback(
+    (changedFields: readonly string[]) => {
+      if (changedFields.length === 0) return;
+      store.notify(changedFields);
+    },
+    [store],
+  );
+
   /**
-   * Writes new errors to the ref (immediate) and schedules a React re-render.
-   * Because errorsRef.current is updated synchronously, the return value of
-   * `form.errors` and `form.isValid` reflect the new state before the next
-   * render cycle.
+   * Writes new errors to the ref (immediate), schedules a React re-render and
+   * notifies the subscribers of the fields whose errors changed.
    */
-  const commitErrors = useCallback((next: FieldErrors<TFieldValues>) => {
-    errorsRef.current = next;
-    forceUpdate((n) => n + 1);
-  }, []);
+  const commitErrors = useCallback(
+    (next: FieldErrors<TFieldValues>) => {
+      const prev = errorsRef.current;
+      const prevErrors = prev as Record<string, FieldError | undefined>;
+      const nextErrors = next as Record<string, FieldError | undefined>;
+      const changed: string[] = [];
+      for (const key of new Set([...Object.keys(prev), ...Object.keys(next)])) {
+        if (!deepEqual(prevErrors[key], nextErrors[key])) changed.push(key);
+      }
+      errorsRef.current = next;
+      forceUpdate((n) => n + 1);
+      notifyFields(changed);
+    },
+    [notifyFields],
+  );
 
   // -------------------------------------------------------------------
   // Submission state: isSubmitting, isSubmitted, submitCount.
@@ -103,20 +158,20 @@ export function useSmartForm<TFieldValues extends FieldValues>(
 
   const fieldRefs = useRef<Record<string, HTMLElement | null>>({});
 
-  const defaults = defaultValuesRef.current as TFieldValues;
-
   const dirtyFields = useMemo<Record<keyof TFieldValues, boolean>>(() => {
     const result = {} as Record<keyof TFieldValues, boolean>;
     for (const key of Object.keys(values)) {
-      result[key as keyof TFieldValues] = !deepEqual(
-        (values as Record<string, unknown>)[key],
-        (defaults as Record<string, unknown>)[key],
-      );
+      result[key as keyof TFieldValues] =
+        dirtyOverrides[key] === true ||
+        !deepEqual(
+          (values as Record<string, unknown>)[key],
+          (defaults as Record<string, unknown>)[key],
+        );
     }
     return result;
-  }, [values]);
+  }, [values, dirtyOverrides]);
 
-  const isDirty = useMemo(() => !deepEqual(values, defaults), [values]);
+  const isDirty = useMemo(() => Object.values(dirtyFields).some(Boolean), [dirtyFields]);
 
   const getValues = useCallback((): TFieldValues => deepClone(valuesRef.current), []);
 
@@ -126,18 +181,33 @@ export function useSmartForm<TFieldValues extends FieldValues>(
     [],
   );
 
-  const setValue = useCallback(
-    <TPath extends Path<TFieldValues>>(name: TPath, value: TFieldValues[TPath]) => {
-      // Eagerly update the ref so trigger() reads the correct value
-      // even before React flushes the state update.
-      valuesRef.current = { ...valuesRef.current, [name]: value };
-      setValues((prev) => {
-        const next: TFieldValues = { ...prev };
-        next[name] = value;
-        return next;
-      });
-    },
-    [],
+  /**
+   * Reads a field's state directly from the refs.
+   *
+   * Subscribed components call this after being notified of a change, so it
+   * must return data that is already consistent (values/touched/errors refs are
+   * updated synchronously before the notification fires).
+   */
+  const readFieldState = useCallback(
+    <TPath extends Path<TFieldValues>>(name: TPath): FieldState<TFieldValues, TPath> => ({
+      value: deepClone(valuesRef.current[name]) as TFieldValues[TPath],
+      touched: touchedRef.current[name] === true,
+      dirty:
+        dirtyOverridesRef.current[name] === true ||
+        !deepEqual(
+          (valuesRef.current as Record<string, unknown>)[name],
+          (defaults as Record<string, unknown>)[name],
+        ),
+      error: errorsRef.current[name],
+      invalid: !!errorsRef.current[name],
+    }),
+    [defaults],
+  );
+
+  const getFieldState = useCallback(
+    <TPath extends Path<TFieldValues>>(name: TPath): FieldState<TFieldValues, TPath> =>
+      readFieldState(name),
+    [readFieldState],
   );
 
   const validateField = useCallback(
@@ -206,14 +276,188 @@ export function useSmartForm<TFieldValues extends FieldValues>(
   const clearErrors = useCallback(
     (name?: Path<TFieldValues>) => {
       if (!name) {
+        if (Object.keys(errorsRef.current).length === 0) return;
         commitErrors({});
       } else {
+        if (!errorsRef.current[name]) return;
         const next = { ...errorsRef.current };
         delete next[name];
         commitErrors(next);
       }
     },
     [commitErrors],
+  );
+
+  /**
+   * Programmatic value update. Does not run validation, touch or mark the
+   * field dirty unless requested through {@link SetValueOptions}.
+   */
+  const setValue = useCallback(
+    <TPath extends Path<TFieldValues>>(
+      name: TPath,
+      value: TFieldValues[TPath],
+      setValueOptions?: SetValueOptions,
+    ) => {
+      // Eagerly update the ref so trigger() and subscribers read the correct
+      // value even before React flushes the state update.
+      valuesRef.current = { ...valuesRef.current, [name]: value };
+      setValues((prev) => {
+        const next: TFieldValues = { ...prev };
+        next[name] = value;
+        return next;
+      });
+
+      if (setValueOptions?.shouldTouch && touchedRef.current[name] !== true) {
+        touchedRef.current = { ...touchedRef.current, [name]: true };
+        setTouchedFields(touchedRef.current);
+      }
+
+      if (setValueOptions?.shouldDirty) {
+        if (dirtyOverridesRef.current[name] !== true) {
+          dirtyOverridesRef.current = { ...dirtyOverridesRef.current, [name]: true };
+          setDirtyOverrides(dirtyOverridesRef.current);
+        }
+      } else if (
+        setValueOptions?.shouldDirty === false &&
+        dirtyOverridesRef.current[name] === true
+      ) {
+        const next = { ...dirtyOverridesRef.current };
+        delete next[name];
+        dirtyOverridesRef.current = next;
+        setDirtyOverrides(next);
+      }
+
+      notifyFields([name]);
+
+      if (setValueOptions?.shouldValidate) {
+        void runValidation(name);
+      }
+    },
+    [runValidation, notifyFields],
+  );
+
+  /**
+   * Updates a field's value as if the user changed it (the shared core of
+   * `register()`'s `onChange` and `Controller`'s `field.onChange`). Runs the
+   * configured validation behavior.
+   */
+  const handleFieldChange = useCallback(
+    (name: Path<TFieldValues>, nextValue: unknown) => {
+      valuesRef.current = {
+        ...valuesRef.current,
+        [name]: nextValue as TFieldValues[Path<TFieldValues>],
+      };
+      setValues((prev) => {
+        const next: TFieldValues = { ...prev };
+        (next as Record<string, unknown>)[name] = nextValue;
+        return next;
+      });
+
+      notifyFields([name]);
+
+      // Handle validation on change
+      if (mode === "onChange" && validate) {
+        void runValidation(name);
+      }
+
+      // Handle re-validation on change when a field already has an error
+      if (reValidateMode === "onChange" && validate && errorsRef.current[name]) {
+        void runValidation(name);
+      }
+    },
+    [mode, reValidateMode, validate, runValidation, notifyFields],
+  );
+
+  /**
+   * Marks a field as touched as if it lost focus (the shared core of
+   * `register()`'s `onBlur` and `Controller`'s `field.onBlur`). Runs the
+   * configured validation behavior.
+   */
+  const handleFieldBlur = useCallback(
+    (name: Path<TFieldValues>) => {
+      if (touchedRef.current[name] !== true) {
+        touchedRef.current = { ...touchedRef.current, [name]: true };
+        setTouchedFields(touchedRef.current);
+        notifyFields([name]);
+      }
+
+      // Handle validation on blur
+      if (mode === "onBlur" && validate) {
+        void runValidation(name);
+      }
+
+      // Handle re-validation on blur when a field already has an error.
+      // Read from errorsRef so we see the latest error state.
+      if (reValidateMode === "onBlur" && validate && errorsRef.current[name]) {
+        void runValidation(name);
+      }
+    },
+    [mode, reValidateMode, validate, runValidation, notifyFields],
+  );
+
+  // The stable control object delegates stateful mutations through `apiRef`
+  // so it always uses the latest callbacks even if options change between
+  // renders. Everything else it exposes reads refs directly.
+  const apiRef = useRef<{
+    updateField: (name: Path<TFieldValues>, value: unknown) => void;
+    blurField: (name: Path<TFieldValues>) => void;
+  }>({
+    updateField: () => {},
+    blurField: () => {},
+  });
+  apiRef.current = { updateField: handleFieldChange, blurField: handleFieldBlur };
+
+  const controlRef = useRef<Control<TFieldValues> | null>(null);
+  if (controlRef.current === null) {
+    controlRef.current = {
+      subscribe: (listener) => store.subscribe(listener),
+      subscribeField: (name, listener) => store.subscribeField(name, listener),
+      getSnapshot: () => store.getVersion(),
+      getValues: () => deepClone(valuesRef.current),
+      getValue: <TPath extends Path<TFieldValues>>(name: TPath): TFieldValues[TPath] =>
+        deepClone(valuesRef.current[name]) as TFieldValues[TPath],
+      getFieldState: (name) => readFieldState(name),
+      updateField: (name, value) => apiRef.current.updateField(name, value),
+      blurField: (name) => apiRef.current.blurField(name),
+      setFieldRef: (name, element) => {
+        fieldRefs.current[name] = element;
+      },
+    };
+  }
+  const control = controlRef.current as Control<TFieldValues>;
+
+  const resetField = useCallback(
+    (name: Path<TFieldValues>) => {
+      const defaultValue = (defaults as Record<string, unknown>)[name];
+      (valuesRef.current as Record<string, unknown>)[name] = defaultValue;
+      setValues((prev) => {
+        const next: TFieldValues = { ...prev };
+        (next as Record<string, unknown>)[name] = defaultValue;
+        return next;
+      });
+
+      if (touchedRef.current[name] === true) {
+        touchedRef.current = { ...touchedRef.current, [name]: false };
+        setTouchedFields(touchedRef.current);
+      }
+
+      if (errorsRef.current[name]) {
+        const next = { ...errorsRef.current };
+        delete next[name];
+        errorsRef.current = next;
+        forceUpdate((n) => n + 1);
+      }
+
+      if (dirtyOverridesRef.current[name] === true) {
+        const next = { ...dirtyOverridesRef.current };
+        delete next[name];
+        dirtyOverridesRef.current = next;
+        setDirtyOverrides(next);
+      }
+
+      notifyFields([name]);
+    },
+    [defaults, notifyFields],
   );
 
   const handleSubmit = useCallback(
@@ -252,25 +496,33 @@ export function useSmartForm<TFieldValues extends FieldValues>(
 
   const reset = useCallback(
     (nextValues?: TFieldValues) => {
-      if (nextValues === undefined) {
-        const resetValues = deepClone(defaultValuesRef.current as TFieldValues);
-        valuesRef.current = resetValues;
-        setValues(resetValues);
-        setTouchedFields(initialTouchedState(defaultValuesRef.current as TFieldValues));
-      } else {
-        const resetValues = deepClone(nextValues);
-        valuesRef.current = resetValues;
-        setValues(resetValues);
-        setTouchedFields(initialTouchedState(nextValues));
-      }
-      commitErrors({});
+      const resetValues =
+        nextValues === undefined
+          ? deepClone(defaultValuesRef.current as TFieldValues)
+          : deepClone(nextValues);
+
+      valuesRef.current = resetValues;
+      setValues(resetValues);
+
+      const nextTouched = initialTouchedState(resetValues);
+      touchedRef.current = nextTouched;
+      setTouchedFields(nextTouched);
+
+      dirtyOverridesRef.current = {};
+      setDirtyOverrides({});
+
       // Reset the submission state as well.
       isSubmittingRef.current = false;
       setIsSubmitting(false);
       setIsSubmitted(false);
       setSubmitCount(0);
+
+      errorsRef.current = {};
+      forceUpdate((n) => n + 1);
+
+      notifyFields(Object.keys(resetValues));
     },
-    [commitErrors],
+    [notifyFields],
   );
 
   const register = useCallback(
@@ -280,52 +532,12 @@ export function useSmartForm<TFieldValues extends FieldValues>(
       const currentValue = values[name] as TFieldValues[TPath];
 
       const onChange: ChangeHandler = (...event) => {
-        const target = (event[0] as { target?: EventTarget | null } | undefined)?.target;
-        let nextValue: unknown;
-        if (target instanceof HTMLInputElement) {
-          nextValue = target.type === "number" ? target.valueAsNumber : target.value;
-        } else if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
-          nextValue = target.value;
-        } else {
-          nextValue = currentValue;
-        }
-
-        // Eagerly update the ref so validation triggered below sees the new value.
-        valuesRef.current = {
-          ...valuesRef.current,
-          [name]: nextValue as TFieldValues[typeof name],
-        };
-
-        setValues((prev) => {
-          const next: TFieldValues = { ...prev };
-          next[name] = nextValue as TFieldValues[TPath];
-          return next;
-        });
-
-        // Handle validation on change
-        if (mode === "onChange" && validate) {
-          void runValidation(name);
-        }
-
-        // Handle re-validation on change when a field already has an error
-        if (reValidateMode === "onChange" && validate && errorsRef.current[name]) {
-          void runValidation(name);
-        }
+        const nextValue = getEventValue(event[0]) ?? currentValue;
+        handleFieldChange(name, nextValue);
       };
 
       const onBlur: ChangeHandler = () => {
-        setTouchedFields((prev) => ({ ...prev, [name]: true }));
-
-        // Handle validation on blur
-        if (mode === "onBlur" && validate) {
-          void runValidation(name);
-        }
-
-        // Handle re-validation on blur when a field already has an error.
-        // Read from errorsRef so we see the latest error state.
-        if (reValidateMode === "onBlur" && validate && errorsRef.current[name]) {
-          void runValidation(name);
-        }
+        handleFieldBlur(name);
       };
 
       const ref = (element: HTMLElement | null) => {
@@ -340,19 +552,21 @@ export function useSmartForm<TFieldValues extends FieldValues>(
         ref,
       };
     },
-    [values, mode, reValidateMode, runValidation, validate],
+    [values, handleFieldChange, handleFieldBlur],
   );
 
-  const getFieldState = useCallback(
-    <TPath extends Path<TFieldValues>>(name: TPath): FieldState<TFieldValues, TPath> => ({
-      value: deepClone(values[name]) as TFieldValues[TPath],
-      touched: touchedFields[name] === true,
-      dirty: dirtyFields[name] === true,
-      error: errorsRef.current[name],
-      invalid: !!errorsRef.current[name],
-    }),
-    [values, touchedFields, dirtyFields],
-  );
+  const watch = useCallback((nameOrNames?: Path<TFieldValues> | readonly Path<TFieldValues>[]) => {
+    if (nameOrNames === undefined) {
+      return deepClone(valuesRef.current);
+    }
+    if (Array.isArray(nameOrNames)) {
+      return nameOrNames.map((name) =>
+        deepClone((valuesRef.current as Record<string, unknown>)[name]),
+      );
+    }
+    const singleName = nameOrNames as Path<TFieldValues>;
+    return deepClone((valuesRef.current as Record<string, unknown>)[singleName]);
+  }, []) as unknown as WatchFunction<TFieldValues>;
 
   const returnRef = useRef<UseSmartFormReturn<TFieldValues> | null>(null);
 
@@ -367,13 +581,16 @@ export function useSmartForm<TFieldValues extends FieldValues>(
       setValue,
       reset,
       register,
+      watch,
       dirtyFields,
       touchedFields: touchedFields as Record<keyof TFieldValues, boolean>,
       getFieldState,
       isDirty,
       trigger: runValidation,
       clearErrors,
+      resetField,
       handleSubmit,
+      control,
       isSubmitting,
       isSubmitted,
       submitCount,
@@ -392,17 +609,20 @@ export function useSmartForm<TFieldValues extends FieldValues>(
     r.setValue = setValue;
     r.reset = reset;
     r.register = register;
+    r.watch = watch;
     r.dirtyFields = dirtyFields;
     r.touchedFields = touchedFields as Record<keyof TFieldValues, boolean>;
     r.getFieldState = getFieldState;
     r.isDirty = isDirty;
     r.trigger = runValidation;
     r.clearErrors = clearErrors;
+    r.resetField = resetField;
     r.handleSubmit = handleSubmit;
+    r.control = control;
     r.isSubmitting = isSubmitting;
     r.isSubmitted = isSubmitted;
     r.submitCount = submitCount;
   }
 
-  return returnRef.current;
+  return returnRef.current as UseSmartFormReturn<TFieldValues>;
 }
