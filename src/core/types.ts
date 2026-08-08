@@ -54,9 +54,15 @@ export interface FieldError {
 
 /**
  * A map of field errors for a given form values shape.
+ *
+ * The reserved `"root"` key holds form-level (non-field) errors — e.g. a
+ * server error such as `"Unable to create account"` that does not belong to a
+ * specific field. Server errors set via `setError`/`setErrors` are stored in
+ * the same structure as validation errors, so `isValid`, `clearErrors()` and
+ * `handleSubmit`'s `onError` treat them identically.
  */
 export type FieldErrors<TFieldValues extends FieldValues> = Partial<
-  Record<Path<TFieldValues>, FieldError>
+  Record<Path<TFieldValues> | "root", FieldError>
 >;
 
 /**
@@ -303,6 +309,12 @@ export interface Control<TFieldValues extends FieldValues> {
 }
 
 /**
+ * The name of a field error target: a field path or the reserved `"root"`
+ * key for form-level (server) errors.
+ */
+export type ErrorName<TFieldValues extends FieldValues> = Path<TFieldValues> | "root";
+
+/**
  * The callable `watch` API returned by {@link useSmartForm}.
  */
 export type WatchFunction<TFieldValues extends FieldValues> = {
@@ -506,9 +518,37 @@ export interface UseSmartFormReturn<TFieldValues extends FieldValues> {
   /**
    * Clears validation errors.
    *
-   * @param name - Optional field name to clear only that field's error.
+   * @param name - Optional field name (or `"root"` for a form-level error) to
+   * clear only that error. Without arguments, clears all errors.
    */
-  clearErrors: (name?: Path<TFieldValues>) => void;
+  clearErrors: (name?: ErrorName<TFieldValues>) => void;
+
+  /**
+   * Sets a single error on a field (or on `"root"` for a form-level error).
+   *
+   * Primarily intended for server/API errors that arrive after validation:
+   * the error is stored like a validation error, makes `isValid` `false`, is
+   * passed to `handleSubmit`'s `onError`, and can be cleared with
+   * `clearErrors(name)`.
+   *
+   * ```ts
+   * form.setError("email", { message: "Email is already taken" });
+   * form.setError("root", "Unable to reach the server");
+   * ```
+   *
+   * @param name - The field name or `"root"`.
+   * @param error - The error object, or a plain message string.
+   */
+  setError: (name: ErrorName<TFieldValues>, error: FieldError | string) => void;
+
+  /**
+   * Sets multiple errors at once.
+   *
+   * Merges into the current errors, so existing errors are kept unless the
+   * provided map replaces them. Accepts the same shape as {@link errors},
+   * including the `"root"` key.
+   */
+  setErrors: (errors: FieldErrors<TFieldValues>) => void;
 
   /**
    * Resets a single field to its default value.

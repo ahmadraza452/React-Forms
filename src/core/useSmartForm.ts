@@ -104,6 +104,15 @@ export function useSmartForm<TFieldValues extends FieldValues>(
   const [, forceUpdate] = useState(0);
   const errorsRef = useRef<FieldErrors<TFieldValues>>({});
 
+  /**
+   * Monotonically increasing counter used to discard stale async validation
+   * results. Every validation run (and `reset`/`resetField`) bumps it; a run
+   * only commits its result if its captured sequence number is still current
+   * when it resolves. This prevents an older, slower validation from
+   * overwriting a newer one (race conditions on async resolvers).
+   */
+  const validationSeqRef = useRef(0);
+
   // -------------------------------------------------------------------
   // Field-subscription store.
   //
@@ -238,8 +247,15 @@ export function useSmartForm<TFieldValues extends FieldValues>(
       try {
         return await validate(currentValues);
       } catch {
-        // If validation throws, treat as valid with no errors
-        return { values: currentValues, errors: {} };
+        // A throwing validator is treated as a validation failure at the
+        // form level, consistent with the field-level fallback in
+        // `validateField` ("Validation failed" on the field). This keeps
+        // error handling consistent: a throwing validator never silently
+        // passes validation.
+        return {
+          values: currentValues,
+          errors: { root: { message: "Validation failed" } } as FieldErrors<TFieldValues>,
+        };
       }
     },
     [validate],
@@ -253,8 +269,14 @@ export function useSmartForm<TFieldValues extends FieldValues>(
       // React has not yet flushed the state update (stale closure guard).
       const currentValues = valuesRef.current;
 
+      // Capture the current sequence so a result that resolves after a newer
+      // validation run (or a reset) started is discarded, not committed.
+      const seq = ++validationSeqRef.current;
+
       if (name) {
         const fieldError = await validateField(name, currentValues);
+        const valid = !fieldError;
+        if (seq !== validationSeqRef.current) return valid;
         const next = { ...errorsRef.current };
         if (fieldError) {
           next[name] = fieldError;
@@ -262,19 +284,21 @@ export function useSmartForm<TFieldValues extends FieldValues>(
           delete next[name];
         }
         commitErrors(next);
-        return !fieldError;
+        return valid;
       } else {
         const result = await validateAll(currentValues);
         const allErrors = result.errors;
+        const valid = Object.keys(allErrors).length === 0;
+        if (seq !== validationSeqRef.current) return valid;
         commitErrors(allErrors);
-        return Object.keys(allErrors).length === 0;
+        return valid;
       }
     },
     [validate, validateField, validateAll, commitErrors],
   );
 
   const clearErrors = useCallback(
-    (name?: Path<TFieldValues>) => {
+    (name?: Path<TFieldValues> | "root") => {
       if (!name) {
         if (Object.keys(errorsRef.current).length === 0) return;
         commitErrors({});
@@ -284,6 +308,33 @@ export function useSmartForm<TFieldValues extends FieldValues>(
         delete next[name];
         commitErrors(next);
       }
+    },
+    [commitErrors],
+  );
+
+  /**
+   * Sets a single error on a field (or the reserved `"root"` key for
+   * form-level errors), e.g. from a server/API response. Stored like a
+   * validation error: it makes `isValid` `false`, is included in the errors
+   * passed to `handleSubmit`'s `onError`, and is cleared by `clearErrors`.
+   */
+  const setError = useCallback(
+    (name: Path<TFieldValues> | "root", error: FieldError | string) => {
+      commitErrors({
+        ...errorsRef.current,
+        [name]: typeof error === "string" ? { message: error } : error,
+      });
+    },
+    [commitErrors],
+  );
+
+  /**
+   * Sets multiple errors at once, merging into the current errors. Accepts
+   * the same shape as `errors`, including the `"root"` key.
+   */
+  const setErrors = useCallback(
+    (errors: FieldErrors<TFieldValues>) => {
+      commitErrors({ ...errorsRef.current, ...errors });
     },
     [commitErrors],
   );
@@ -428,6 +479,9 @@ export function useSmartForm<TFieldValues extends FieldValues>(
 
   const resetField = useCallback(
     (name: Path<TFieldValues>) => {
+      // Invalidate any in-flight validation of this field so its stale result
+      // is not committed after the reset.
+      validationSeqRef.current += 1;
       const defaultValue = (defaults as Record<string, unknown>)[name];
       (valuesRef.current as Record<string, unknown>)[name] = defaultValue;
       setValues((prev) => {
@@ -475,8 +529,15 @@ export function useSmartForm<TFieldValues extends FieldValues>(
       setSubmitCount((count) => count + 1);
 
       try {
+        // Bump the validation sequence so in-flight field validations do not
+        // overwrite the submission result, and so a `reset()` called while
+        // validation is pending discards this stale result below.
+        const seq = ++validationSeqRef.current;
         const result = await validateAll(valuesRef.current);
-        commitErrors(result.errors);
+
+        if (seq === validationSeqRef.current) {
+          commitErrors(result.errors);
+        }
 
         if (Object.keys(result.errors).length === 0) {
           // Pass the parsed/transformed values (e.g. Zod coercion) when the
@@ -496,6 +557,9 @@ export function useSmartForm<TFieldValues extends FieldValues>(
 
   const reset = useCallback(
     (nextValues?: TFieldValues) => {
+      // Invalidate any in-flight validation/submission results so they are
+      // not committed after the form is reset.
+      validationSeqRef.current += 1;
       const resetValues =
         nextValues === undefined
           ? deepClone(defaultValuesRef.current as TFieldValues)
@@ -588,6 +652,8 @@ export function useSmartForm<TFieldValues extends FieldValues>(
       isDirty,
       trigger: runValidation,
       clearErrors,
+      setError,
+      setErrors,
       resetField,
       handleSubmit,
       control,
@@ -616,6 +682,8 @@ export function useSmartForm<TFieldValues extends FieldValues>(
     r.isDirty = isDirty;
     r.trigger = runValidation;
     r.clearErrors = clearErrors;
+    r.setError = setError;
+    r.setErrors = setErrors;
     r.resetField = resetField;
     r.handleSubmit = handleSubmit;
     r.control = control;
