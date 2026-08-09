@@ -45,8 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Published as `1.0.0` — first public release. Package renamed from
-  `react-smart-form` (name already taken on npm) to `react-smartform`.
+- Published as `1.0.0` — first public release, on npm as
+  `@ahmad231/react-formkit` (the intended names `react-smart-form` and
+  `react-smartform` were already taken on npm).
 
 ### Fixed
 

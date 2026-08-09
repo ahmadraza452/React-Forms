@@ -1,5 +1,5 @@
 /**
- * react-smartform
+ * @ahmad231/react-formkit
  *
  * A lightweight, type-safe form state and validation library for React.
  *

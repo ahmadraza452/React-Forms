@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useSmartForm } from "react-smartform";
+import { useSmartForm } from "@ahmad231/react-formkit";
 
 export default function BasicForm() {
   const [submitted, setSubmitted] = useState<string | null>(null);

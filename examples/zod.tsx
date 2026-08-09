@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { useSmartForm, zodResolver } from "react-smartform";
+import { useSmartForm, zodResolver } from "@ahmad231/react-formkit";
 
 const schema = z.object({
   email: z.string().email("Enter a valid email address"),

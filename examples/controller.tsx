@@ -1,4 +1,4 @@
-import { Controller, type Control } from "react-smartform";
+import { Controller, type Control } from "@ahmad231/react-formkit";
 
 interface ProfileForm {
   name: string;

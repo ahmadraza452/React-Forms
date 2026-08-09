@@ -1,5 +1,5 @@
 {
-  "name": "react-smartform",
+  "name": "@ahmad231/react-formkit",
   "version": "1.0.0",
   "description": "A lightweight, TypeScript-first form library for React with validation, Zod support, controlled fields, and server error handling.",
   "keywords": [

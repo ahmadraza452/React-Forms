@@ -19,131 +19,147 @@ afterEach(() => {
 describe("performance smoke benchmarks", () => {
   const BENCH_TIMEOUT = 30000;
 
-  it("handles a medium form (100 fields) with thousands of updates quickly", async () => {
-    const values: Record<string, string> = {};
-    for (let i = 0; i < 100; i += 1) values[`field${i}`] = "";
+  it(
+    "handles a medium form (100 fields) with thousands of updates quickly",
+    async () => {
+      const values: Record<string, string> = {};
+      for (let i = 0; i < 100; i += 1) values[`field${i}`] = "";
 
-    const { result } = renderHookForm(values);
+      const { result } = renderHookForm(values);
 
-    const elapsed = await timeBest(() => {
-      for (let i = 0; i < 100; i += 1) {
-        act(() => {
-          result.setValue(`field${i}`, `value${i}`);
-        });
+      const elapsed = await timeBest(() => {
+        for (let i = 0; i < 100; i += 1) {
+          act(() => {
+            result.setValue(`field${i}`, `value${i}`);
+          });
+        }
+      });
+      console.info(`[perf] 100 fields x 100 setValue calls: ${elapsed.toFixed(1)}ms`);
+
+      expect(elapsed).toBeLessThan(10000);
+      expect(result.getValue("field99")).toBe("value99");
+    },
+    BENCH_TIMEOUT,
+  );
+
+  it(
+    "keeps per-field subscriptions isolated at scale",
+    async () => {
+      const values: Record<string, string> = {};
+      for (let i = 0; i < 100; i += 1) values[`field${i}`] = "";
+
+      const holder: { current: UseSmartFormReturn<Record<string, string>> | null } = {
+        current: null,
+      };
+      const watcherRenders = { current: 0 };
+
+      const Watcher = memo(function Watcher() {
+        watcherRenders.current += 1;
+        const value = useWatch({ control: holder.current!.control, name: "field0" });
+        return <p data-testid="watched">{value}</p>;
+      });
+
+      function Harness() {
+        const form = useSmartForm({ defaultValues: values });
+        holder.current = form;
+        return (
+          <div>
+            <Watcher />
+            {Object.keys(values).map((name) => (
+              <input key={name} aria-label={name} {...form.register(name)} />
+            ))}
+          </div>
+        );
       }
-    });
-    console.info(`[perf] 100 fields x 100 setValue calls: ${elapsed.toFixed(1)}ms`);
 
-    expect(elapsed).toBeLessThan(10000);
-    expect(result.getValue("field99")).toBe("value99");
-  }, BENCH_TIMEOUT);
+      render(<Harness />);
+      expect(watcherRenders.current).toBe(1);
 
-  it("keeps per-field subscriptions isolated at scale", async () => {
-    const values: Record<string, string> = {};
-    for (let i = 0; i < 100; i += 1) values[`field${i}`] = "";
-
-    const holder: { current: UseSmartFormReturn<Record<string, string>> | null } = {
-      current: null,
-    };
-    const watcherRenders = { current: 0 };
-
-    const Watcher = memo(function Watcher() {
-      watcherRenders.current += 1;
-      const value = useWatch({ control: holder.current!.control, name: "field0" });
-      return <p data-testid="watched">{value}</p>;
-    });
-
-    function Harness() {
-      const form = useSmartForm({ defaultValues: values });
-      holder.current = form;
-      return (
-        <div>
-          <Watcher />
-          {Object.keys(values).map((name) => (
-            <input key={name} aria-label={name} {...form.register(name)} />
-          ))}
-        </div>
+      // Updating 99 unrelated fields must not re-render the watcher.
+      const elapsed = await timeBest(() => {
+        for (let i = 1; i < 100; i += 1) {
+          fireEvent.change(screen.getByLabelText(`field${i}`), {
+            target: { value: `value${i}` },
+          });
+        }
+      });
+      console.info(
+        `[perf] 99 unrelated field updates, watcher renders: ${watcherRenders.current} (${elapsed.toFixed(1)}ms)`,
       );
-    }
 
-    render(<Harness />);
-    expect(watcherRenders.current).toBe(1);
+      expect(watcherRenders.current).toBe(1);
+      expect(elapsed).toBeLessThan(10000);
 
-    // Updating 99 unrelated fields must not re-render the watcher.
-    const elapsed = await timeBest(() => {
-      for (let i = 1; i < 100; i += 1) {
-        fireEvent.change(screen.getByLabelText(`field${i}`), {
-          target: { value: `value${i}` },
-        });
+      // The watched field still updates the watcher.
+      fireEvent.change(screen.getByLabelText("field0"), { target: { value: "changed" } });
+      expect(screen.getByTestId("watched").textContent).toBe("changed");
+      expect(watcherRenders.current).toBe(2);
+    },
+    BENCH_TIMEOUT,
+  );
+
+  it(
+    "validates a medium form without pathological cost",
+    async () => {
+      const values: Record<string, string> = {};
+      for (let i = 0; i < 100; i += 1) values[`field${i}`] = "";
+
+      const { result } = renderHookForm(values, () => ({ errors: {} }));
+
+      const elapsed = await timeBest(async () => {
+        for (let i = 0; i < 10; i += 1) {
+          const valid = await result.trigger();
+          expect(valid).toBe(true);
+        }
+      });
+      console.info(`[perf] 10 full validations of 100-field form: ${elapsed.toFixed(1)}ms`);
+
+      expect(elapsed).toBeLessThan(10000);
+    },
+    BENCH_TIMEOUT,
+  );
+
+  it(
+    "Controller updates stay cheap with many controlled fields",
+    async () => {
+      const values: Record<string, string> = {};
+      for (let i = 0; i < 50; i += 1) values[`field${i}`] = "";
+
+      const holder: { current: UseSmartFormReturn<Record<string, string>> | null } = {
+        current: null,
+      };
+
+      function Harness() {
+        const form = useSmartForm({ defaultValues: values });
+        holder.current = form;
+        return (
+          <div>
+            {Object.keys(values).map((name) => (
+              <Controller
+                key={name}
+                control={form.control}
+                name={name}
+                render={({ field }) => <input aria-label={name} {...field} />}
+              />
+            ))}
+          </div>
+        );
       }
-    });
-    console.info(
-      `[perf] 99 unrelated field updates, watcher renders: ${watcherRenders.current} (${elapsed.toFixed(1)}ms)`,
-    );
 
-    expect(watcherRenders.current).toBe(1);
-    expect(elapsed).toBeLessThan(10000);
+      render(<Harness />);
 
-    // The watched field still updates the watcher.
-    fireEvent.change(screen.getByLabelText("field0"), { target: { value: "changed" } });
-    expect(screen.getByTestId("watched").textContent).toBe("changed");
-    expect(watcherRenders.current).toBe(2);
-  }, BENCH_TIMEOUT);
+      const elapsed = await timeBest(() => {
+        for (let i = 0; i < 50; i += 1) {
+          fireEvent.change(screen.getByLabelText(`field${i}`), { target: { value: `v${i}` } });
+        }
+      });
+      console.info(`[perf] 50 Controller updates: ${elapsed.toFixed(1)}ms`);
 
-  it("validates a medium form without pathological cost", async () => {
-    const values: Record<string, string> = {};
-    for (let i = 0; i < 100; i += 1) values[`field${i}`] = "";
-
-    const { result } = renderHookForm(values, () => ({ errors: {} }));
-
-    const elapsed = await timeBest(async () => {
-      for (let i = 0; i < 10; i += 1) {
-        const valid = await result.trigger();
-        expect(valid).toBe(true);
-      }
-    });
-    console.info(`[perf] 10 full validations of 100-field form: ${elapsed.toFixed(1)}ms`);
-
-    expect(elapsed).toBeLessThan(10000);
-  }, BENCH_TIMEOUT);
-
-  it("Controller updates stay cheap with many controlled fields", async () => {
-    const values: Record<string, string> = {};
-    for (let i = 0; i < 50; i += 1) values[`field${i}`] = "";
-
-    const holder: { current: UseSmartFormReturn<Record<string, string>> | null } = {
-      current: null,
-    };
-
-    function Harness() {
-      const form = useSmartForm({ defaultValues: values });
-      holder.current = form;
-      return (
-        <div>
-          {Object.keys(values).map((name) => (
-            <Controller
-              key={name}
-              control={form.control}
-              name={name}
-              render={({ field }) => <input aria-label={name} {...field} />}
-            />
-          ))}
-        </div>
-      );
-    }
-
-    render(<Harness />);
-
-    const elapsed = await timeBest(() => {
-      for (let i = 0; i < 50; i += 1) {
-        fireEvent.change(screen.getByLabelText(`field${i}`), { target: { value: `v${i}` } });
-      }
-    });
-    console.info(`[perf] 50 Controller updates: ${elapsed.toFixed(1)}ms`);
-
-    expect(elapsed).toBeLessThan(10000);
-    expect(holder.current?.getValue("field49")).toBe("v49");
-  }, BENCH_TIMEOUT);
+      expect(elapsed).toBeLessThan(10000);
+      expect(holder.current?.getValue("field49")).toBe("v49");
+    },
+    BENCH_TIMEOUT,
+  );
 });
 
 /**

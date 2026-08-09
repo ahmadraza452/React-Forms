@@ -1,10 +1,10 @@
-# react-smartform
+# @ahmad231/react-formkit
 
 A lightweight, TypeScript-first form state and validation library for React.
 
 > **Status: stable** — `v1.0.0` is published on npm.
 
-## Why react-smartform?
+## Why @ahmad231/react-formkit?
 
 - **Type-safe by design** — field names and values are checked against your
   form shape at compile time; no stringly-typed access.
@@ -52,10 +52,10 @@ A lightweight, TypeScript-first form state and validation library for React.
 ## Installation
 
 ```bash
-npm install react-smartform
+npm install @ahmad231/react-formkit
 ```
 
-`react-smartform` declares `react` as a peer dependency. It supports React 18
+`@ahmad231/react-formkit` declares `react` as a peer dependency. It supports React 18
 and React 19.
 
 Zod integration is **optional**. `zodResolver` is part of the package, but `zod`
@@ -72,7 +72,7 @@ custom functions.
 ## Usage
 
 ```tsx
-import { useSmartForm } from "react-smartform";
+import { useSmartForm } from "@ahmad231/react-formkit";
 
 const form = useSmartForm({
   defaultValues: {
@@ -154,7 +154,7 @@ option:
 
 ```tsx
 import { z } from "zod";
-import { useSmartForm, zodResolver } from "react-smartform";
+import { useSmartForm, zodResolver } from "@ahmad231/react-formkit";
 
 const schema = z.object({
   email: z.string().email(),
@@ -215,7 +215,7 @@ Connect the form's `handleSubmit` directly to the `<form>` element's
 automatically:
 
 ```tsx
-import { useSmartForm, zodResolver } from "react-smartform";
+import { useSmartForm, zodResolver } from "@ahmad231/react-formkit";
 
 const schema = z.object({
   email: z.string().email(),
@@ -359,7 +359,7 @@ To watch a field from a _different_ component, pass `form.control` to the
 `useWatch` hook. It re-renders only when the watched field changes:
 
 ```tsx
-import { useWatch } from "react-smartform";
+import { useWatch } from "@ahmad231/react-formkit";
 
 function EmailPreview({ control }: { control: Control<LoginForm> }) {
   const email = useWatch({ control, name: "email" });
@@ -375,7 +375,7 @@ function EmailPreview({ control }: { control: Control<LoginForm> }) {
 engine as `register()`:
 
 ```tsx
-import { Controller } from "react-smartform";
+import { Controller } from "@ahmad231/react-formkit";
 
 <Controller
   control={form.control}
@@ -415,7 +415,7 @@ form.setValue("email", "test@example.com", {
 
 ## Comparison
 
-|                                                   | react-smartform          | react-hook-form  | Formik            |
+|                                                   | @ahmad231/react-formkit  | react-hook-form  | Formik            |
 | ------------------------------------------------- | ------------------------ | ---------------- | ----------------- |
 | Runtime dependencies                              | none                     | none             | several           |
 | Package size (gzip)                               | ~3 kB                    | ~11 kB           | ~30 kB+           |
@@ -427,7 +427,7 @@ form.setValue("email", "test@example.com", {
 | Nested paths / field arrays                       | planned                  | yes              | yes               |
 | Browser support                                   | React 18+                | React 16.8+      | React 16.8+       |
 
-react-smartform is the right choice when you want a small, focused, fully
+@ahmad231/react-formkit is the right choice when you want a small, focused, fully
 typed form engine with first-party Zod support and no extra dependencies.
 If you need nested field paths, dynamic field arrays or a larger ecosystem
 today, react-hook-form is the more mature option.
@@ -473,7 +473,7 @@ npm run build        # build the distributable package into dist/
 - [x] `resetField()`, advanced `setValue()` options, stable `control`.
 - [x] Server error handling: `setError()`, `setErrors()`, root errors.
 - [x] Error handling and ergonomics for async submissions.
-- [x] Publish to npm (`react-smartform` v1.0.0).
+- [x] Publish to npm (`@ahmad231/react-formkit` v1.0.0).
 - [ ] Nested field-path support (`"user.name"`, arrays).
 - [ ] Yup resolver.
 - [ ] Valibot resolver.
