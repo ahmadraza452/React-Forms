@@ -12,11 +12,14 @@ import type {
   FieldState,
   FieldValues,
   Path,
+  RegisterOptions,
+  RegisterFunction,
   SetValueOptions,
   UseSmartFormOptions,
   UseSmartFormRegisterReturn,
   UseSmartFormReturn,
   ValidationResult,
+  ValidationRule,
   WatchFunction,
 } from "./types";
 
@@ -58,7 +61,14 @@ function toDisplayValue(value: unknown): unknown {
 export function useSmartForm<TFieldValues extends FieldValues>(
   options: UseSmartFormOptions<TFieldValues>,
 ): UseSmartFormReturn<TFieldValues> {
-  const { validate, mode = "onSubmit", reValidateMode = "onChange", onSubmit, onError } = options;
+  const {
+    validate,
+    mode = "onSubmit",
+    reValidateMode = "onChange",
+    onSubmit,
+    onError,
+    shouldFocusError = false,
+  } = options;
 
   const defaultValuesRef = useRef<TFieldValues | null>(null);
   if (defaultValuesRef.current === null) {
@@ -112,6 +122,8 @@ export function useSmartForm<TFieldValues extends FieldValues>(
    * overwriting a newer one (race conditions on async resolvers).
    */
   const validationSeqRef = useRef(0);
+  const fieldValidationSeqRef = useRef<Record<string, number>>({});
+  const rulesRef = useRef<Record<string, RegisterOptions<TFieldValues, Path<TFieldValues>>>>({});
 
   // -------------------------------------------------------------------
   // Field-subscription store.
@@ -165,7 +177,37 @@ export function useSmartForm<TFieldValues extends FieldValues>(
   const [submitCount, setSubmitCount] = useState(0);
   const isSubmittingRef = useRef(false);
 
-  const fieldRefs = useRef<Record<string, HTMLElement | null>>({});
+  const fieldRefs = useRef<Record<string, HTMLElement[]>>({});
+
+  const rememberFieldRef = useCallback((name: string, element: HTMLElement | null) => {
+    if (!element) return;
+    const current = fieldRefs.current[name] ?? [];
+    if (!current.includes(element)) fieldRefs.current[name] = [...current, element];
+  }, []);
+
+  const setFocus = useCallback(<TPath extends Path<TFieldValues>>(name: TPath) => {
+    const element = (fieldRefs.current[name] ?? []).find(
+      (candidate) => candidate.isConnected && !(candidate as HTMLInputElement).disabled,
+    );
+    element?.focus();
+  }, []);
+
+  const focusFirstError = useCallback((errors: FieldErrors<TFieldValues>) => {
+    const candidates = Object.keys(errors)
+      .filter((name) => name !== "root")
+      .flatMap((name) => fieldRefs.current[name] ?? [])
+      .filter(
+        (element) =>
+          element.isConnected &&
+          !(element as HTMLInputElement).disabled &&
+          typeof element.focus === "function",
+      );
+    candidates.sort((left, right) => {
+      const position = left.compareDocumentPosition(right);
+      return position & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+    });
+    candidates[0]?.focus();
+  }, []);
 
   const dirtyFields = useMemo<Record<keyof TFieldValues, boolean>>(() => {
     const result = {} as Record<keyof TFieldValues, boolean>;
@@ -219,33 +261,103 @@ export function useSmartForm<TFieldValues extends FieldValues>(
     [readFieldState],
   );
 
+  const validateRules = useCallback(
+    async (
+      name: Path<TFieldValues>,
+      currentValues: TFieldValues,
+    ): Promise<FieldError | undefined> => {
+      const rules = rulesRef.current[name];
+      if (!rules) return undefined;
+      const value = currentValues[name];
+      const empty =
+        value === "" ||
+        value === null ||
+        value === undefined ||
+        (typeof value === "number" && Number.isNaN(value)) ||
+        value === false ||
+        (Array.isArray(value) && value.length === 0);
+      const unpack = <T>(rule: ValidationRule<T>): { value: T; message?: string } =>
+        typeof rule === "object" && rule !== null && "value" in rule
+          ? (rule as { value: T; message: string })
+          : { value: rule as T };
+      const required = rules.required;
+      if (required && empty && (typeof required === "string" || required.value)) {
+        return { message: typeof required === "string" ? required : required.message };
+      }
+      if (!empty) {
+        if (rules.minLength !== undefined) {
+          const rule = unpack(rules.minLength);
+          if (typeof value === "string" && value.length < rule.value)
+            return { message: rule.message ?? `Must be at least ${rule.value} characters` };
+        }
+        if (rules.maxLength !== undefined) {
+          const rule = unpack(rules.maxLength);
+          if (typeof value === "string" && value.length > rule.value)
+            return { message: rule.message ?? `Must be at most ${rule.value} characters` };
+        }
+        if (rules.min !== undefined) {
+          const rule = unpack(rules.min);
+          if (typeof value === "number" && value < rule.value)
+            return { message: rule.message ?? `Must be at least ${rule.value}` };
+        }
+        if (rules.max !== undefined) {
+          const rule = unpack(rules.max);
+          if (typeof value === "number" && value > rule.value)
+            return { message: rule.message ?? `Must be at most ${rule.value}` };
+        }
+        if (rules.pattern !== undefined) {
+          const rule = unpack(rules.pattern);
+          rule.value.lastIndex = 0;
+          if (typeof value === "string" && !rule.value.test(value))
+            return { message: rule.message ?? "Invalid format" };
+        }
+      }
+      if (rules.validate) {
+        try {
+          const result = await rules.validate(value, currentValues);
+          if (typeof result === "string") return { message: result };
+        } catch {
+          return { message: "Validation failed" };
+        }
+      }
+      return undefined;
+    },
+    [],
+  );
+
   const validateField = useCallback(
     async (
       name: Path<TFieldValues>,
       currentValues: TFieldValues,
     ): Promise<FieldError | undefined> => {
-      if (!validate) return undefined;
-
       try {
+        if (rulesRef.current[name]) {
+          const ruleError = await validateRules(name, currentValues);
+          if (ruleError) return ruleError;
+        }
+        if (!validate) return undefined;
         const result = await validate(currentValues);
-        const fieldError = result.errors?.[name];
-        return fieldError;
+        return result.errors?.[name];
       } catch {
         // If validation throws, treat as error
         return { message: "Validation failed" };
       }
     },
-    [validate],
+    [validate, validateRules],
   );
 
   const validateAll = useCallback(
     async (currentValues: TFieldValues): Promise<ValidationResult<TFieldValues>> => {
-      if (!validate) {
-        return { values: currentValues, errors: {} };
-      }
-
       try {
-        return await validate(currentValues);
+        const result = validate
+          ? await validate(currentValues)
+          : { values: currentValues, errors: {} as FieldErrors<TFieldValues> };
+        const errors = { ...result.errors };
+        for (const name of Object.keys(rulesRef.current) as Path<TFieldValues>[]) {
+          const ruleError = await validateRules(name, currentValues);
+          if (ruleError) errors[name] = ruleError;
+        }
+        return { ...result, values: result.values ?? currentValues, errors };
       } catch {
         // A throwing validator is treated as a validation failure at the
         // form level, consistent with the field-level fallback in
@@ -258,25 +370,23 @@ export function useSmartForm<TFieldValues extends FieldValues>(
         };
       }
     },
-    [validate],
+    [validate, validateRules],
   );
 
   const runValidation = useCallback(
     async (name?: Path<TFieldValues>): Promise<boolean> => {
-      if (!validate) return true;
-
       // Always read from the ref so we get the latest values even when
       // React has not yet flushed the state update (stale closure guard).
       const currentValues = valuesRef.current;
 
       // Capture the current sequence so a result that resolves after a newer
       // validation run (or a reset) started is discarded, not committed.
-      const seq = ++validationSeqRef.current;
-
       if (name) {
+        const seq = (fieldValidationSeqRef.current[name] ?? 0) + 1;
+        fieldValidationSeqRef.current[name] = seq;
         const fieldError = await validateField(name, currentValues);
         const valid = !fieldError;
-        if (seq !== validationSeqRef.current) return valid;
+        if (seq !== fieldValidationSeqRef.current[name]) return valid;
         const next = { ...errorsRef.current };
         if (fieldError) {
           next[name] = fieldError;
@@ -286,6 +396,7 @@ export function useSmartForm<TFieldValues extends FieldValues>(
         commitErrors(next);
         return valid;
       } else {
+        const seq = ++validationSeqRef.current;
         const result = await validateAll(currentValues);
         const allErrors = result.errors;
         const valid = Object.keys(allErrors).length === 0;
@@ -407,16 +518,16 @@ export function useSmartForm<TFieldValues extends FieldValues>(
       notifyFields([name]);
 
       // Handle validation on change
-      if (mode === "onChange" && validate) {
+      if (mode === "onChange") {
         void runValidation(name);
       }
 
       // Handle re-validation on change when a field already has an error
-      if (reValidateMode === "onChange" && validate && errorsRef.current[name]) {
+      if (reValidateMode === "onChange" && errorsRef.current[name]) {
         void runValidation(name);
       }
     },
-    [mode, reValidateMode, validate, runValidation, notifyFields],
+    [mode, reValidateMode, runValidation, notifyFields],
   );
 
   /**
@@ -433,17 +544,17 @@ export function useSmartForm<TFieldValues extends FieldValues>(
       }
 
       // Handle validation on blur
-      if (mode === "onBlur" && validate) {
+      if (mode === "onBlur") {
         void runValidation(name);
       }
 
       // Handle re-validation on blur when a field already has an error.
       // Read from errorsRef so we see the latest error state.
-      if (reValidateMode === "onBlur" && validate && errorsRef.current[name]) {
+      if (reValidateMode === "onBlur" && errorsRef.current[name]) {
         void runValidation(name);
       }
     },
-    [mode, reValidateMode, validate, runValidation, notifyFields],
+    [mode, reValidateMode, runValidation, notifyFields],
   );
 
   // The stable control object delegates stateful mutations through `apiRef`
@@ -471,7 +582,7 @@ export function useSmartForm<TFieldValues extends FieldValues>(
       updateField: (name, value) => apiRef.current.updateField(name, value),
       blurField: (name) => apiRef.current.blurField(name),
       setFieldRef: (name, element) => {
-        fieldRefs.current[name] = element;
+        rememberFieldRef(name, element);
       },
     };
   }
@@ -482,6 +593,7 @@ export function useSmartForm<TFieldValues extends FieldValues>(
       // Invalidate any in-flight validation of this field so its stale result
       // is not committed after the reset.
       validationSeqRef.current += 1;
+      fieldValidationSeqRef.current[name] = (fieldValidationSeqRef.current[name] ?? 0) + 1;
       const defaultValue = (defaults as Record<string, unknown>)[name];
       (valuesRef.current as Record<string, unknown>)[name] = defaultValue;
       setValues((prev) => {
@@ -545,6 +657,7 @@ export function useSmartForm<TFieldValues extends FieldValues>(
           await onSubmit?.(result.values ?? valuesRef.current);
         } else {
           onError?.(result.errors);
+          if (shouldFocusError) focusFirstError(result.errors);
         }
       } finally {
         // Always reset the loading state, even if onSubmit throws.
@@ -552,7 +665,7 @@ export function useSmartForm<TFieldValues extends FieldValues>(
         setIsSubmitting(false);
       }
     },
-    [validateAll, onSubmit, onError, commitErrors],
+    [validateAll, onSubmit, onError, commitErrors, shouldFocusError, focusFirstError],
   );
 
   const reset = useCallback(
@@ -560,6 +673,9 @@ export function useSmartForm<TFieldValues extends FieldValues>(
       // Invalidate any in-flight validation/submission results so they are
       // not committed after the form is reset.
       validationSeqRef.current += 1;
+      for (const name of Object.keys(valuesRef.current)) {
+        fieldValidationSeqRef.current[name] = (fieldValidationSeqRef.current[name] ?? 0) + 1;
+      }
       const resetValues =
         nextValues === undefined
           ? deepClone(defaultValuesRef.current as TFieldValues)
@@ -592,11 +708,35 @@ export function useSmartForm<TFieldValues extends FieldValues>(
   const register = useCallback(
     <TPath extends Path<TFieldValues>>(
       name: TPath,
+      registerOptions?: RegisterOptions<TFieldValues, TPath>,
     ): UseSmartFormRegisterReturn<TFieldValues, TPath> => {
       const currentValue = values[name] as TFieldValues[TPath];
+      if (registerOptions) {
+        rulesRef.current[name] = registerOptions as unknown as RegisterOptions<
+          TFieldValues,
+          Path<TFieldValues>
+        >;
+      } else {
+        delete rulesRef.current[name];
+      }
 
       const onChange: ChangeHandler = (...event) => {
-        const nextValue = getEventValue(event[0]) ?? currentValue;
+        const target = (event[0] as { target?: HTMLInputElement | HTMLSelectElement } | undefined)
+          ?.target;
+        if (
+          registerOptions?.type === "radio" &&
+          target instanceof HTMLInputElement &&
+          !target.checked
+        )
+          return;
+        const nextValue =
+          registerOptions?.type === "checkbox"
+            ? Boolean(target instanceof HTMLInputElement && target.checked)
+            : registerOptions?.type === "radio"
+              ? registerOptions.value
+              : registerOptions?.type === "select-multiple" && target instanceof HTMLSelectElement
+                ? Array.from(target.selectedOptions, (option) => option.value)
+                : (getEventValue(event[0]) ?? currentValue);
         handleFieldChange(name, nextValue);
       };
 
@@ -605,18 +745,31 @@ export function useSmartForm<TFieldValues extends FieldValues>(
       };
 
       const ref = (element: HTMLElement | null) => {
-        fieldRefs.current[name] = element;
+        rememberFieldRef(name, element);
       };
 
-      return {
+      const base = {
         name,
-        value: toDisplayValue(currentValue) as TFieldValues[TPath],
         onChange,
         onBlur,
         ref,
       };
+      if (registerOptions?.type === "checkbox") {
+        return { ...base, checked: Boolean(currentValue) } as unknown as UseSmartFormRegisterReturn<
+          TFieldValues,
+          TPath
+        >;
+      }
+      if (registerOptions?.type === "radio") {
+        return {
+          ...base,
+          value: registerOptions.value as TFieldValues[TPath],
+          checked: deepEqual(currentValue, registerOptions.value),
+        };
+      }
+      return { ...base, value: toDisplayValue(currentValue) as TFieldValues[TPath] };
     },
-    [values, handleFieldChange, handleFieldBlur],
+    [values, handleFieldChange, handleFieldBlur, rememberFieldRef],
   );
 
   const watch = useCallback((nameOrNames?: Path<TFieldValues> | readonly Path<TFieldValues>[]) => {
@@ -643,8 +796,9 @@ export function useSmartForm<TFieldValues extends FieldValues>(
       getValues,
       getValue,
       setValue,
+      setFocus,
       reset,
-      register,
+      register: register as RegisterFunction<TFieldValues>,
       watch,
       dirtyFields,
       touchedFields: touchedFields as Record<keyof TFieldValues, boolean>,
@@ -673,8 +827,9 @@ export function useSmartForm<TFieldValues extends FieldValues>(
     r.getValues = getValues;
     r.getValue = getValue;
     r.setValue = setValue;
+    r.setFocus = setFocus;
     r.reset = reset;
-    r.register = register;
+    r.register = register as RegisterFunction<TFieldValues>;
     r.watch = watch;
     r.dirtyFields = dirtyFields;
     r.touchedFields = touchedFields as Record<keyof TFieldValues, boolean>;

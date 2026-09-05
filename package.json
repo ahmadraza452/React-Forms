@@ -1,6 +1,6 @@
 {
   "name": "@ahmad231/react-formkit",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A lightweight, TypeScript-first form library for React with validation, Zod support, controlled fields, and server error handling.",
   "keywords": [
     "react",
