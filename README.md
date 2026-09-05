@@ -4,6 +4,8 @@ A lightweight, TypeScript-first form state and validation library for React.
 
 > **Status: stable** — `v1.1.0` is published on npm.
 
+![React FormKit v1.1.0 — New Version Updated](./assets/react-formkit-new-version.png)
+
 ## Quick start (v1.1.0)
 
 ```tsx
@@ -74,6 +76,8 @@ mounted field; `shouldFocusError: true` focuses the first enabled invalid field 
 
 ## Why @ahmad231/react-formkit?
 
+![React FormKit v1.1 feature overview](./assets/v1.1-features.png)
+
 - **Type-safe by design** — field names and values are checked against your
   form shape at compile time; no stringly-typed access.
 - **Tiny and dependency-free** — no runtime dependencies. `zod` is optional
@@ -87,6 +91,8 @@ mounted field; `shouldFocusError: true` focuses the first enabled invalid field 
   `setError()` / `setErrors()`.
 
 ## Features
+
+![React form connected to useSmartForm for values, validation and submission](./assets/form-flow.png)
 
 ### Implemented
 
@@ -510,6 +516,13 @@ If you need nested field paths, dynamic field arrays or a larger ecosystem
 today, react-hook-form is the more mature option.
 
 ## Examples
+
+### Signup form showcase
+
+![Signup form design showing registration, validation, error focus and native inputs](./assets/react-formkit-white-showcase.png)
+
+These illustrations show an example UI built around the package's APIs.
+React FormKit manages form behavior; you provide the components and styling.
 
 Copy-paste-ready examples live in the
 [`examples/`](./examples) directory:
