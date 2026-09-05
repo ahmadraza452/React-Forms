@@ -2,7 +2,75 @@
 
 A lightweight, TypeScript-first form state and validation library for React.
 
-> **Status: stable** — `v1.0.0` is published on npm.
+> **Status: stable** — `v1.1.0` is published on npm.
+
+## Quick start (v1.1.0)
+
+```tsx
+import { useSmartForm } from "@ahmad231/react-formkit";
+
+function Signup() {
+  const form = useSmartForm({
+    defaultValues: { email: "", password: "", terms: false },
+    shouldFocusError: true,
+    onSubmit: async (values) => {
+      await createAccount(values);
+    },
+  });
+
+  return (
+    <form onSubmit={form.handleSubmit} noValidate>
+      <label>Email</label>
+      <input
+        type="email"
+        aria-invalid={!!form.errors.email}
+        aria-describedby={form.errors.email ? "email-error" : undefined}
+        {...form.register("email", {
+          required: "Email is required",
+          pattern: { value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, message: "Enter a valid email" },
+        })}
+      />
+      {form.errors.email && <p id="email-error">{form.errors.email.message}</p>}
+
+      <label>Password</label>
+      <input
+        type="password"
+        aria-invalid={!!form.errors.password}
+        {...form.register("password", {
+          required: "Password is required",
+          minLength: { value: 8, message: "Use at least 8 characters" },
+        })}
+      />
+      {form.errors.password && <p>{form.errors.password.message}</p>}
+
+      <label>
+        <input
+          type="checkbox"
+          {...form.register("terms", {
+            type: "checkbox",
+            required: "Accept the terms",
+          })}
+        />{" "}
+        Accept the terms
+      </label>
+      {form.errors.terms && <p>{form.errors.terms.message}</p>}
+      <button type="submit" disabled={form.isSubmitting}>
+        Create account
+      </button>
+    </form>
+  );
+}
+```
+
+Rules run in order: `required`, length, numeric range, `pattern`, then custom
+`validate(value, values)`. A custom validator returns `true`/`undefined` for
+success or a string error message. Optional empty values skip all rules except
+`required`; empty includes `""`, `null`, `undefined`, `false`, `NaN`, and an empty array.
+
+Use explicit registrations for native controls: `register("terms", { type: "checkbox" })`,
+`register("plan", { type: "radio", value: "pro" })`, and
+`register("tags", { type: "select-multiple" })`. `setFocus(name)` focuses a
+mounted field; `shouldFocusError: true` focuses the first enabled invalid field after submit.
 
 ## Why @ahmad231/react-formkit?
 
@@ -26,6 +94,11 @@ A lightweight, TypeScript-first form state and validation library for React.
 - Type-safe values inferred from your form shape or provided explicitly.
 - `getValues()`, `getValue(name)`, `setValue(name, value)`.
 - `register()` to connect native `input`, `textarea` and `select` elements.
+- Built-in field rules through `register(name, options)`: `required`, length,
+  numeric range, pattern and sync/async custom validation.
+- Native boolean checkboxes, radio groups and multiple selects through explicit
+  registration options.
+- `setFocus(name)` and opt-in invalid-submit focus with `shouldFocusError`.
 - `reset()` and `reset(values)`.
 - Form state: `isDirty`, `dirtyFields`, `touchedFields`, `getFieldState(name)`.
 - Validation via `trigger()`, `errors`, `isValid` and validation modes
@@ -138,6 +211,10 @@ When no generic is provided, the shape is inferred from `defaultValues`.
   empty string.
 - Registering the same field with a mismatched input type (e.g. a `text`
   input on a `number` field) is the caller's responsibility.
+- **Checkboxes** use `register("accepted", { type: "checkbox" })` and store a
+  boolean. **Radio groups** use one registration per option, for example
+  `register("plan", { type: "radio", value: "pro" })`. **Multiple selects**
+  use `register("tags", { type: "select-multiple" })` and store a string array.
 
 ### Handlers and overrides
 
@@ -415,17 +492,17 @@ form.setValue("email", "test@example.com", {
 
 ## Comparison
 
-|                                                   | @ahmad231/react-formkit  | react-hook-form  | Formik            |
-| ------------------------------------------------- | ------------------------ | ---------------- | ----------------- |
-| Runtime dependencies                              | none                     | none             | several           |
-| Package size (gzip)                               | ~3 kB                    | ~11 kB           | ~30 kB+           |
-| TypeScript-first                                  | yes                      | yes              | partial           |
-| Zod resolver                                      | built-in (`zodResolver`) | separate package | separate packages |
-| Field-level subscriptions                         | yes                      | yes              | no                |
-| Validation modes (`onChange`/`onBlur`/`onSubmit`) | yes                      | yes              | partial           |
-| Server errors (`setError`/root errors)            | yes                      | yes              | yes               |
-| Nested paths / field arrays                       | planned                  | yes              | yes               |
-| Browser support                                   | React 18+                | React 16.8+      | React 16.8+       |
+|                                                   | @ahmad231/react-formkit  | react-hook-form   | Formik            |
+| ------------------------------------------------- | ------------------------ | ----------------- | ----------------- |
+| Runtime dependencies                              | none                     | none              | several           |
+| Package size                                      | small; inspect release   | varies by version | varies by version |
+| TypeScript-first                                  | yes                      | yes               | partial           |
+| Zod resolver                                      | built-in (`zodResolver`) | separate package  | separate packages |
+| Field-level subscriptions                         | yes                      | yes               | no                |
+| Validation modes (`onChange`/`onBlur`/`onSubmit`) | yes                      | yes               | partial           |
+| Server errors (`setError`/root errors)            | yes                      | yes               | yes               |
+| Nested paths / field arrays                       | planned                  | yes               | yes               |
+| Browser support                                   | React 18+                | React 16.8+       | React 16.8+       |
 
 @ahmad231/react-formkit is the right choice when you want a small, focused, fully
 typed form engine with first-party Zod support and no extra dependencies.

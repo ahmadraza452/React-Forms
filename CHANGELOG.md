@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0]
+
+### Added
+
+- Schema-free `register` rules: `required`, length, numeric range, pattern and sync/async custom validation.
+- Explicit checkbox, radio and multiple-select registration support.
+- `setFocus(name)` and opt-in `shouldFocusError` invalid-submit focus behavior.
+
+### Changed
+
+- Field rules take precedence over resolver errors for the same field; successful resolver transformations still reach `onSubmit`.
+
+### Migration
+
+Existing APIs continue to work unchanged. All v1.1.0 registration options are additive and `shouldFocusError` defaults to `false`.
+
 ## [1.0.0]
 
 ### Added

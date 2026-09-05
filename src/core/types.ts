@@ -143,6 +143,30 @@ export interface SetValueOptions {
   shouldDirty?: boolean;
 }
 
+export type ValidationRule<T> = T | { value: T; message: string };
+
+export type FieldValidate<TFieldValues extends FieldValues, TPath extends Path<TFieldValues>> = (
+  value: TFieldValues[TPath],
+  values: TFieldValues,
+) => true | string | undefined | Promise<true | string | undefined>;
+
+/** Rules and native-input behavior accepted by `register`. Rules run top to bottom. */
+export interface RegisterOptions<
+  TFieldValues extends FieldValues,
+  TPath extends Path<TFieldValues>,
+> {
+  required?: string | { value: boolean; message: string };
+  minLength?: ValidationRule<number>;
+  maxLength?: ValidationRule<number>;
+  min?: ValidationRule<number>;
+  max?: ValidationRule<number>;
+  pattern?: ValidationRule<RegExp>;
+  validate?: FieldValidate<TFieldValues, TPath>;
+  type?: "checkbox" | "radio" | "select-multiple";
+  /** The option value for `type: "radio"`. */
+  value?: TFieldValues[TPath];
+}
+
 /** Options accepted by {@link useSmartForm}. */
 export interface UseSmartFormOptions<TFieldValues extends FieldValues> {
   /**
@@ -198,6 +222,9 @@ export interface UseSmartFormOptions<TFieldValues extends FieldValues> {
    * @default "onChange"
    */
   reValidateMode?: ReValidateMode;
+
+  /** Focus the first invalid mounted field after submission. Default: `false`. */
+  shouldFocusError?: boolean;
 }
 
 /**
@@ -217,6 +244,8 @@ export interface UseSmartFormRegisterReturn<
    * cleared), `""` is rendered instead so the field displays as empty.
    */
   value: TFieldValues[TPath];
+  /** Controlled checked state returned for checkbox and radio registrations. */
+  checked?: boolean;
   /** Updates the form state when the field value changes. */
   onChange: ChangeHandler;
   /** Marks the field as touched when it loses focus. */
@@ -412,6 +441,18 @@ export interface ControllerProps<
   render: (props: ControllerRenderProps<TFieldValues, TName>) => ReactNode;
 }
 
+export type RegisterFunction<TFieldValues extends FieldValues> = {
+  <TPath extends Path<TFieldValues>>(name: TPath): UseSmartFormRegisterReturn<TFieldValues, TPath>;
+  <TPath extends Path<TFieldValues>>(
+    name: TPath,
+    options: RegisterOptions<TFieldValues, TPath> & { type: "checkbox" },
+  ): Omit<UseSmartFormRegisterReturn<TFieldValues, TPath>, "value"> & { checked: boolean };
+  <TPath extends Path<TFieldValues>>(
+    name: TPath,
+    options: RegisterOptions<TFieldValues, TPath>,
+  ): UseSmartFormRegisterReturn<TFieldValues, TPath>;
+};
+
 /** The object returned by {@link useSmartForm}. */
 export interface UseSmartFormReturn<TFieldValues extends FieldValues> {
   /**
@@ -464,9 +505,10 @@ export interface UseSmartFormReturn<TFieldValues extends FieldValues> {
    * is normal React behavior: the later value wins, so overriding `onChange`
    * stops the automatic update.
    */
-  register: <TPath extends Path<TFieldValues>>(
-    name: TPath,
-  ) => UseSmartFormRegisterReturn<TFieldValues, TPath>;
+  register: RegisterFunction<TFieldValues>;
+
+  /** Focuses a mounted field. */
+  setFocus: <TPath extends Path<TFieldValues>>(name: TPath) => void;
 
   /**
    * Watches the current form values.
